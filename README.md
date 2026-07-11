@@ -4,6 +4,15 @@ Safely install product-owned shell integration in the current user's Bash, Zsh, 
 
 `free-shellrc` owns only a clearly marked block. It preserves the rest of the profile, including its encoding, line endings, permissions, and symbolic link. Calling it repeatedly with the same commands does not rewrite the profile.
 
+## Why free-shellrc
+
+- **Self-cleaning after uninstall.** Each managed block checks whether its owning package still exists. If the package has been removed, the block skips the product command and removes itself from that profile. The cleanup helper then removes itself too.
+- **Enforced first restart.** A first-time installation creates a restart marker. `shellrcGuard` rejects later application invocations with `ERR_SHELL_RESTART_REQUIRED` until a new shell loads the managed block. Explicitly reloading the profile also satisfies this requirement.
+- **User-owned content stays user-owned.** Installation changes only the marked region and preserves content outside it byte for byte, along with the existing encoding, line endings, permissions, and symbolic link.
+- **Safe to repeat and update.** Reinstalling identical commands does not rewrite the profile. Changed commands replace the existing block in place, and malformed or concurrently changed profiles are not overwritten.
+
+The self-cleaning path requires `node` to remain available on `PATH`. Cleanup failures are ignored during shell startup so they cannot prevent the rest of the user's profile from loading.
+
 ## Install
 
 ```sh
@@ -36,17 +45,29 @@ if (changed) {
 
 Pass a second argument such as `['bash', 'zsh', 'fish']` to install for an explicit set of shells. The command factory runs once for each selected shell. The promise resolves to `true` if at least one profile changed and `false` if every selected profile already contained the same managed block.
 
-Call `shellrcGuard(import.meta.url)` at the top of the complete application entry, before other application code. The entry must belong to a package with a stable `name`. The guard rejects unsupported shells and, after the first installation, stops later invocations until the shell loads the managed block once.
+Call `shellrcGuard(import.meta.url)` at the top of the complete application entry, before other application code. The entry must belong to a package with a stable `name`. The guard rejects unsupported shells and, after the first installation, stops later invocations until a restarted shell or explicitly reloaded profile loads the managed block once.
 
-The supported shell identifiers are:
+## Shell support
+
+The public shell identifiers are:
 
 ```ts
 type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 ```
 
-`powershell` selects Windows PowerShell 5.1 and is available only on Windows. `pwsh` selects PowerShell 7 or newer. The requested executable must be available. PowerShell profile paths are queried from that executable so redirected Documents folders and host-specific paths are respected; execution policy still applies.
+| Shell                      | Identifier   | Support                                                                                     |
+| -------------------------- | ------------ | ------------------------------------------------------------------------------------------- |
+| Bash                       | `bash`       | Supported on macOS and Linux. Git Bash is supported when it loads `~/.bashrc`.              |
+| Zsh                        | `zsh`        | Supported on macOS and Linux.                                                               |
+| Fish                       | `fish`       | Supported on macOS and Linux.                                                               |
+| Windows PowerShell 5.1     | `powershell` | Supported on Windows only.                                                                  |
+| PowerShell 7+              | `pwsh`       | Supported wherever the `pwsh` executable is available.                                      |
+| Command Prompt (`cmd.exe`) | —            | **Not supported.** `free-shellrc` does not edit Command Processor AutoRun registry entries. |
+| Other shells               | —            | **Not supported.** This includes shells without one of the identifiers above.               |
 
-WSL is a separate Linux environment. Git Bash can use the `bash` adapter when it loads `~/.bashrc`.
+The requested executable must be available. PowerShell profile paths are queried from that executable so redirected Documents folders and host-specific paths are respected; execution policy still applies.
+
+WSL is a separate Linux environment: install the integration from inside each WSL distribution that should receive it. System-wide and all-user profiles are not supported.
 
 ## Before installing
 
@@ -54,7 +75,7 @@ WSL is a separate Linux environment. Git Bash can use the `bash` adapter when it
 - Return valid shell-specific code without generated marker lines. The library does not translate or validate commands.
 - Tell users to restart their shell or reload the profile after a changed installation. `free-shellrc` cannot modify the state of an already-running parent shell.
 
-Keep Node.js on `PATH`. If the guarded entry or package manifest disappears, a local helper removes the stale block while preserving the rest of the profile.
+If the guarded entry or package manifest disappears, the local cleanup helper removes the stale block while preserving the rest of the profile.
 
 ## Errors
 
@@ -64,7 +85,7 @@ Expected conflicts are normal `Error` objects with a stable `code` property. The
 | ------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `ERR_INVALID_MARKERS`           | A profile or caller command contains incomplete, reversed, nested, or conflicting markers.     |
 | `ERR_PACKAGE_NOT_FOUND`         | The guarded entry has no ancestor `package.json` with a package name.                          |
-| `ERR_SHELL_RESTART_REQUIRED`    | The first installation has not yet been loaded by a restarted shell.                           |
+| `ERR_SHELL_RESTART_REQUIRED`    | The first installation has not yet been loaded by a restarted shell or reloaded profile.       |
 | `ERR_SHELLRC_GUARD_REQUIRED`    | `installShellrc` was called before `shellrcGuard`.                                             |
 | `ERR_UNSUPPORTED_ENCODING`      | An existing profile is not supported UTF-8, UTF-16 LE, or UTF-16 BE.                           |
 | `ERR_UNAVAILABLE_SHELL`         | The requested shell executable or profile path is unavailable.                                 |

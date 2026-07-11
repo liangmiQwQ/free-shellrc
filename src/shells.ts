@@ -17,6 +17,7 @@ export function createManagedBlock(
 ): string {
   const normalizedCommand = command.replaceAll(/\r\n|\n|\r/g, lineEnding)
   const cleanupScript = Buffer.from(cleanupScriptSource.trim()).toString('base64')
+  const warning = `# Please do not edit the comments \`${markers.start}\`, \`${markers.end}\` and the script between them, which probably makes ${markers.packageName}'s feature broken.`
   const lines =
     shell === 'fish'
       ? createFishLines(
@@ -48,7 +49,7 @@ export function createManagedBlock(
             cleanupScript
           )
 
-  return [markers.start, ...lines, markers.end, ''].join(lineEnding)
+  return [markers.start, warning, ...lines, markers.end, ''].join(lineEnding)
 }
 
 function createPosixLines(

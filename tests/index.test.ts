@@ -51,7 +51,9 @@ it('installs a Bash block once without changing user content', async () => {
   const installedMetadata = await stat(profile)
 
   expect(installed.startsWith(`${userContent}${EOL}`)).toBeTruthy()
-  expect(installed).toContain('# >>> _demo_START >>>')
+  expect(installed).toContain(
+    `# >>> _demo_START >>>${EOL}# Please do not edit the comments \`# >>> _demo_START >>>\`, \`# <<< _demo_END <<<\` and the script between them, which probably makes demo's feature broken.`
+  )
   expect(installed).toContain("alias demo='demo shell'")
   await expect(installShellrc(() => "alias demo='demo shell'", ['bash'])).resolves.toBeFalsy()
   await expect(stat(profile)).resolves.toMatchObject({ ino: installedMetadata.ino })

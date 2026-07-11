@@ -91,7 +91,7 @@ Every downstream package has a stable package name. The library uses comments to
 
 Markers occupy complete lines and are matched exactly. They are derived from the downstream package name; callers cannot override them.
 
-An installed block contains the opening marker, a shell-specific package-installation guard, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
+An installed block contains the opening marker, a warning not to edit the managed region, a shell-specific package-installation guard, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
 
 The first time a product block is added, installation creates a package-specific file in the operating system's temporary directory. A supported shell removes that file when it loads the new block and confirms the product is available. Until then, `shellrcGuard` reports `ERR_SHELL_RESTART_REQUIRED`. This makes the required restart enforceable instead of relying only on caller messaging. Updating or repairing an existing block does not recreate the restart marker.
 

@@ -1,17 +1,17 @@
 # RFC: Core
 
-`free-shellrc` manages application-owned blocks in user shell profile files without owning the rest of the file.
+`free-shellrc` manages product-owned blocks in user shell profile files without owning the rest of the file.
 
 The library targets CLI authors who need to install shell functions, aliases, completions, or initialization commands on Windows, macOS, and Linux. Callers generate the shell code. `free-shellrc` resolves the profile and manages the lifecycle of that code.
 
 ## Goals
 
 - Support Bash, Zsh, Fish, Windows PowerShell 5.1, and PowerShell 7 or newer.
-- Install, update, and remove one application-owned block.
+- Install and update one product-owned block in each requested shell profile.
+- Remove stale managed blocks automatically after the product is uninstalled.
 - Preserve user-owned content, file encoding, line endings, permissions, and symbolic links.
 - Make repeated operations idempotent.
-- Provide explicit profile path overrides for unusual shell configurations.
-- Return enough information for callers to explain what changed.
+- Report whether an installation changed any profile.
 
 ## Non-goals
 
@@ -21,9 +21,8 @@ The library targets CLI authors who need to install shell functions, aliases, co
 - Managing PowerShell execution policy.
 - Editing `cmd.exe` AutoRun registry entries.
 - Managing system-wide or all-user profiles.
-- Removing an integration automatically when its executable disappears.
 
-Git Bash can use the Bash adapter, with an explicit profile path when its startup file differs from `~/.bashrc`. WSL is treated as a separate Linux environment.
+Git Bash can use the Bash adapter when its startup file is `~/.bashrc`. WSL is treated as a separate Linux environment.
 
 ## Supported shells
 
@@ -39,31 +38,20 @@ Bash and Zsh share a shell language in many cases, but they remain separate iden
 
 ## Public API
 
-The initial public API contains three functions:
+The initial public API contains one function:
 
 ```ts
-export function resolveShellrcPath(
-  shell: Shell,
-  options?: ResolveShellrcOptions
-): Promise<string>
-
-export function installShellrc(options: InstallShellrcOptions): Promise<ShellrcResult>
-
-export function uninstallShellrc(options: UninstallShellrcOptions): Promise<ShellrcResult>
+export function installShellrc<RequestedShell extends Shell>(
+  shellCommand: Record<RequestedShell, string>,
+  productName: string
+): Promise<boolean>
 ```
 
-The install operation receives a shell, a stable integration ID, the generated shell code, and optional path or marker overrides. The uninstall operation receives the same identity information without requiring the generated code.
+`shellCommand` contains the caller-provided command for each requested shell. The library resolves the corresponding current-user profiles and installs each command in the managed block for that shell. Commands are shell-specific and are not translated between shell languages.
 
-An explicit path always takes precedence over automatic profile resolution.
+`productName` identifies the owning product. It must match `[A-Za-z0-9._-]+` and is used in the managed block's comment markers and in its stale-installation check.
 
-```ts
-export interface ShellrcResult {
-  path: string
-  action: 'added' | 'updated' | 'unchanged' | 'removed'
-}
-```
-
-Installing the same content twice returns `unchanged` and does not write the file. Uninstalling an integration that is not present also returns `unchanged`.
+The promise resolves to `true` when at least one profile changes and `false` when every profile already contains the requested block. Installing the same commands twice therefore returns `false` and does not write any file.
 
 Expected conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
 
@@ -83,31 +71,35 @@ The PowerShell paths must be queried from the selected executable instead of bei
 
 The PowerShell query runs without loading profiles. Failure to find or run the requested executable is reported as an unavailable-shell error.
 
-The Bash default intentionally targets interactive non-login shells. Applications supporting a login-shell-only setup should expose the library's explicit path override instead of modifying both `.bashrc` and `.bash_profile` automatically.
+The Bash default intentionally targets interactive non-login shells. Login-shell-only and other non-standard profile layouts are outside the initial API.
 
-`ZDOTDIR` can be set inside shell startup files without being exported to child processes. When it is not visible in the process environment, callers with a custom Zsh setup must provide the profile path explicitly.
+`ZDOTDIR` can be set inside shell startup files without being exported to child processes. A custom Zsh setup whose `ZDOTDIR` is not visible in the process environment is outside the initial API.
 
 ## Managed blocks
 
-Every integration has a stable ID matching `[A-Za-z0-9._-]+`. The default markers are:
+Every product has a stable name matching `[A-Za-z0-9._-]+`. The library uses comments to mark the complete area it owns:
 
 ```text
-# >>> free-shellrc:<id> >>>
-# <<< free-shellrc:<id> <<<
+# >>> _<productName>_START >>>
+# <<< _<productName>_END <<<
 ```
 
-Markers occupy complete lines and are matched exactly. Callers can provide an explicit marker pair to adopt an existing integration without migrating its users. This allows applications such as `mo` to keep previously published markers.
+Markers occupy complete lines and are matched exactly. They are derived from `productName`; callers cannot override them.
 
-An installed block contains the opening marker, caller-provided content, and closing marker. The library converts the block's line endings to match the target file but otherwise treats caller content as opaque shell code.
+An installed block contains the opening marker, a shell-specific product-availability guard, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
+
+When a shell loads the block, it first checks whether `productName` is available as a command. If it is available, the block executes only the caller-provided command. If it is unavailable, the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
+
+The availability guard and cleanup routine are library-generated implementation details for Bash, Zsh, Fish, Windows PowerShell, and PowerShell 7. They must not rewrite or reinterpret the caller-provided command. A cleanup failure must not prevent the rest of the user's profile from loading.
 
 Installation follows these rules:
 
 1. If no block exists, append it to the file with an owned separator.
 2. If one complete block exists, replace it in place.
-3. If multiple complete blocks exist, keep the first position, remove the duplicates, and return `updated`.
+3. If multiple complete blocks exist, keep the first position and remove the duplicates.
 4. If markers are incomplete, reversed, or nested, stop without writing and report an invalid-marker error.
 
-The separator inserted while appending belongs to the managed region. Uninstall removes that separator together with the block, so installing and then uninstalling restores the original bytes.
+The separator inserted while appending belongs to the managed region. Self-removal removes that separator together with the block, so installing and later cleaning up restores the original bytes.
 
 The implementation must not use a regular expression that can consume unrelated content across malformed or mismatched markers. It should scan exact marker lines and validate their order before producing updated content.
 
@@ -143,15 +135,15 @@ Existing line endings are preserved. New files use the platform line ending.
 
 ## File updates
 
-The library creates a missing parent directory and profile file for the current user when installing an integration.
+The library creates a missing parent directory and profile file for the current user when installing a product block.
 
 Before replacing content, the implementation verifies that the bytes read for transformation still match the target. A concurrent change aborts the operation instead of overwriting the newer content.
 
-Updates should use a temporary sibling file and replace the resolved target only after the new bytes are complete. When the configured path is a symbolic link, the library updates its resolved target and leaves the link itself intact. Existing file permissions are applied to the replacement.
+Updates should use a temporary sibling file and replace the resolved target only after the new bytes are complete. When the profile path is a symbolic link, the library updates its resolved target and leaves the link itself intact. Existing file permissions are applied to the replacement.
 
 Filesystem and permission failures propagate with their original error as the cause. The library does not retry permission errors or attempt privileged writes.
 
-Uninstall does not delete the profile file, even when removal leaves it empty. The file can contain user-owned metadata or be intentionally present for shell startup behavior.
+Self-removal does not delete the profile file, even when removal leaves it empty. The file can contain user-owned metadata or be intentionally present for shell startup behavior.
 
 ## Caller responsibilities
 
@@ -159,23 +151,23 @@ Callers are responsible for:
 
 - Choosing which shells to configure.
 - Generating syntactically valid content for each shell.
-- Validating that application commands referenced by the content are available.
 - Asking for user consent before modifying a profile when their product requires it.
 - Telling users when a shell restart or profile reload is needed.
 - Diagnosing PowerShell execution policy when a profile is not loaded.
 
-`free-shellrc` does not execute the installed integration content.
+`free-shellrc` does not execute the installed command during installation. The user's shell executes it when loading the managed block and the product is still available.
 
 ## Verification
 
 Pure transformation tests cover:
 
-- Adding, replacing, repairing duplicates, removing, and repeated operations.
+- Adding, replacing, repairing duplicates, self-removing, and repeated operations.
 - Files with and without final newlines.
 - LF and CRLF input.
-- Custom and malformed markers.
+- Product-derived and malformed markers.
 - Preservation of all bytes outside the managed region.
 - Every supported encoding and byte-order mark.
+- Product-present and product-missing branches of each shell-specific managed block.
 
 Filesystem tests use temporary directories and cover missing parents, unchanged writes, permissions, symbolic links, and concurrent-change detection. Tests must never target a developer's actual shell profile.
 
@@ -185,4 +177,4 @@ CI runs on Windows, macOS, and Linux. Shell-specific integration tests query rea
 
 The library can ship before either consumer migrates.
 
-Existing applications adopt it by keeping their current markers, passing their generated integration content to `installShellrc`, and replacing custom removal logic with `uninstallShellrc`. Application-specific wrapper and action protocols stay in their existing repositories.
+Existing applications adopt it by mapping each supported shell to its generated command and passing that record with the product name to `installShellrc`. Application-specific wrapper and action protocols stay in their existing repositories.

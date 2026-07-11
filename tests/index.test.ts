@@ -142,6 +142,15 @@ it('accepts import.meta.url as the application entry', async () => {
   }
 })
 
+it('throws unexpected guard errors', async () => {
+  const home = await createTemporaryDirectory()
+  const entryPath = join(home, 'entry.mjs')
+  await writeFile(join(home, 'package.json'), '{')
+  await writeFile(entryPath, '')
+
+  expect(() => shellrcGuard(entryPath)).toThrow(SyntaxError)
+})
+
 it('installs only the current shell when no shell list is provided', async () => {
   const home = await createHome()
 

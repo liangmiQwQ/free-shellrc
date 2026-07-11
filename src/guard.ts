@@ -5,7 +5,7 @@ import { platform, tmpdir } from 'node:os'
 import { basename, dirname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createShellrcError, normalizeShellrcError } from './errors.ts'
+import { createShellrcError } from './errors.ts'
 import type { ShellrcError } from './errors.ts'
 import type { Shell } from './shells.ts'
 
@@ -22,35 +22,34 @@ let activeContext: ShellrcContext | undefined
 /** The returned value must be checked before other application logic runs. */
 export function shellrcGuard(entry: string | URL): ShellrcError | undefined {
   activeContext = undefined
-  try {
-    const entryPath = resolveEntryPath(entry)
-    const packageMetadata = findPackageMetadata(entryPath)
-    const shell = detectCurrentShell()
-    if (!shell) {
-      throw createShellrcError(
-        'ERR_UNSUPPORTED_SHELL',
-        'The current terminal is not using Bash, Zsh, Fish, Windows PowerShell, or PowerShell 7.'
-      )
-    }
-
-    const restartPath = createRestartPath(packageMetadata.name)
-    if (existsSync(restartPath)) {
-      throw createShellrcError(
-        'ERR_SHELL_RESTART_REQUIRED',
-        'Restart the current shell before running this command again.'
-      )
-    }
-    activeContext = {
-      entryPath,
-      packageName: packageMetadata.name,
-      packagePath: packageMetadata.path,
-      restartPath,
-      shell
-    }
-    return undefined
-  } catch (error) {
-    return normalizeShellrcError(error)
+  const entryPath = resolveEntryPath(entry)
+  const packageMetadata = findPackageMetadata(entryPath)
+  if (packageMetadata instanceof Error) {
+    return packageMetadata
   }
+  const shell = detectCurrentShell()
+  if (!shell) {
+    return createShellrcError(
+      'ERR_UNSUPPORTED_SHELL',
+      'The current terminal is not using Bash, Zsh, Fish, Windows PowerShell, or PowerShell 7.'
+    )
+  }
+
+  const restartPath = createRestartPath(packageMetadata.name)
+  if (existsSync(restartPath)) {
+    return createShellrcError(
+      'ERR_SHELL_RESTART_REQUIRED',
+      'Restart the current shell before running this command again.'
+    )
+  }
+  activeContext = {
+    entryPath,
+    packageName: packageMetadata.name,
+    packagePath: packageMetadata.path,
+    restartPath,
+    shell
+  }
+  return undefined
 }
 
 export function requireShellrcContext(): ShellrcContext {
@@ -115,7 +114,7 @@ function resolveEntryPath(entry: string | URL): string {
   return resolve(entry instanceof URL || entry.startsWith('file:') ? fileURLToPath(entry) : entry)
 }
 
-function findPackageMetadata(entryPath: string): { name: string; path: string } {
+function findPackageMetadata(entryPath: string): { name: string; path: string } | ShellrcError {
   const entryDirectory = dirname(entryPath)
   const { root } = parse(entryDirectory)
 
@@ -134,8 +133,8 @@ function findPackageMetadata(entryPath: string): { name: string; path: string } 
   }
 }
 
-function packageNotFound(entryPath: string): never {
-  throw createShellrcError(
+function packageNotFound(entryPath: string): ShellrcError {
+  return createShellrcError(
     'ERR_PACKAGE_NOT_FOUND',
     `Could not find a package.json with a name for the application entry: ${entryPath}`
   )

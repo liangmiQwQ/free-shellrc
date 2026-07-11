@@ -40,7 +40,7 @@ Bash and Zsh share a shell language in many cases, but they remain separate iden
 The public API contains a guard and an installation function:
 
 ```ts
-export type ShellrcError = Error & { code?: string }
+export type ShellrcError = Error & { code: ShellrcErrorCode }
 
 export function shellrcGuard(entry: string | URL): ShellrcError | undefined
 
@@ -60,7 +60,7 @@ The package name discovered by `shellrcGuard` identifies the owning product and 
 
 The promise resolves to `true` when at least one profile changes and `false` when every profile already contains the requested block. Installing the same commands twice therefore returns `false` and does not write any file.
 
-`shellrcGuard` returns an error when the application should stop and `undefined` when it may continue, so callers do not need a `try`/`catch` around startup control flow. Installation failures reject the promise. Expected conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
+`shellrcGuard` returns a `ShellrcError` when an expected guard condition should stop the application and `undefined` when it may continue, so callers do not need a `try`/`catch` around startup control flow. Unexpected input, package manifest, and filesystem failures still throw. Installation failures reject the promise. Expected conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
 
 ## Profile resolution
 

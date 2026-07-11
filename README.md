@@ -88,7 +88,7 @@ If the guarded entry or package manifest disappears, the local cleanup helper re
 
 ## Errors
 
-`shellrcGuard` returns an `Error` when startup should stop and `undefined` when it may continue. It does not throw. Installation errors still reject the `installShellrc` promise because they represent a failed profile operation.
+`shellrcGuard` returns a `ShellrcError` when an expected guard condition should stop startup and `undefined` when it may continue. Unexpected input, package manifest, and filesystem failures still throw. Installation errors reject the `installShellrc` promise because they represent a failed profile operation.
 
 Errors created by `free-shellrc` have a stable `code` property. The exported `ShellrcErrorCode` type contains:
 

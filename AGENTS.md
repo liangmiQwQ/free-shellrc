@@ -20,6 +20,8 @@ Keep code functional. Never use classes. Prefer small reusable functions with on
 
 Treat shell profile files as user-owned data. Preserve content outside the managed region, and use temporary directories in tests instead of modifying real user profiles.
 
+Keep generated profile code readable. Do not encode executable cleanup payloads.
+
 Keep the library focused on shell profile integration. Do not add CLI prompts, application-specific aliases, or unrelated process-management features.
 
 Use existing dependencies and platform APIs where they fit. Do not reinvent established behavior.

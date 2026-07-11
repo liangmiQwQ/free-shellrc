@@ -19,6 +19,8 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 
 import { installShellrc, shellrcGuard } from '../src/index.ts'
+import { createManagedBlock } from '../src/shells.ts'
+import { createMarkers } from '../src/transform.ts'
 
 const temporaryDirectories: string[] = []
 const temporaryRestartPaths: string[] = []
@@ -58,6 +60,40 @@ it('installs a Bash block once without changing user content', async () => {
   await expect(installShellrc(() => "alias demo='demo shell'", ['bash'])).resolves.toBeFalsy()
   await expect(stat(profile)).resolves.toMatchObject({ ino: installedMetadata.ino })
 })
+
+it.each(['bash', 'zsh', 'fish', 'powershell', 'pwsh'] as const)(
+  'writes the cleanup script as readable source for %s',
+  shell => {
+    const markers = createMarkers('demo')
+    const block = createManagedBlock(
+      shell,
+      'demo init',
+      "/tmp/demo's/entry.mjs",
+      "/tmp/demo's/package.json",
+      "/tmp/demo's/profile",
+      '/tmp/demo.restart',
+      markers,
+      '\n'
+    )
+
+    expect(block).toContain('function cleanup()')
+    expect(block).not.toMatch(/base64|eval\(/i)
+
+    const powerShell = shell === 'powershell' || shell === 'pwsh'
+    const quotedProfile = powerShell ? "'/tmp/demo''s/profile'" : `'/tmp/demo'"'"'s/profile'`
+    const cleanupCommand = powerShell ? '    & node -e' : '  command node -e'
+    const failureGuard = powerShell
+      ? ' *> $null'
+      : shell === 'fish'
+        ? ' >/dev/null 2>&1; or true'
+        : ' >/dev/null 2>&1 || true'
+
+    expect(block).toContain(`${cleanupCommand} '\n// This script only removes`)
+    expect(block).toContain(
+      `\n' -- ${quotedProfile} '${markers.start}' '${markers.end}'${failureGuard}`
+    )
+  }
+)
 
 it.skipIf(platform() === 'win32')(
   'requires one shell restart after the first installation',

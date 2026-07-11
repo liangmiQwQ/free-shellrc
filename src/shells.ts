@@ -3,8 +3,6 @@ import type { Markers } from './transform.ts'
 
 export type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 
-const CLEANUP_LOADER = 'eval(Buffer.from(process.argv.splice(1,1)[0],"base64").toString("utf8"))'
-
 export function createManagedBlock(
   shell: Shell,
   command: string,
@@ -16,7 +14,7 @@ export function createManagedBlock(
   lineEnding: string
 ): string {
   const normalizedCommand = command.replaceAll(/\r\n|\n|\r/g, lineEnding)
-  const cleanupScript = Buffer.from(cleanupScriptSource.trim()).toString('base64')
+  const cleanupScript = `${lineEnding}${cleanupScriptSource.trim().replaceAll(/\r\n|\n|\r/g, lineEnding)}${lineEnding}`
   const warning = `# Please do not edit the comments \`${markers.start}\`, \`${markers.end}\` and the script between them, which probably makes ${markers.packageName}'s feature broken.`
   const lines =
     shell === 'fish'
@@ -66,7 +64,7 @@ function createPosixLines(
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
     command,
     'else',
-    `  command node -e ${quotePosix(CLEANUP_LOADER)} ${quotePosix(cleanupScript)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1 || true`,
+    `  command node -e ${quotePosix(cleanupScript)} -- ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1 || true`,
     'fi'
   ]
 }
@@ -85,7 +83,7 @@ function createFishLines(
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
     command,
     'else',
-    `  command node -e ${quotePosix(CLEANUP_LOADER)} ${quotePosix(cleanupScript)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1; or true`,
+    `  command node -e ${quotePosix(cleanupScript)} -- ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1; or true`,
     'end'
   ]
 }
@@ -105,7 +103,7 @@ function createPowerShellLines(
     command,
     '} else {',
     '  try {',
-    `    & node -e ${quotePowerShell(CLEANUP_LOADER)} ${quotePowerShell(cleanupScript)} ${quotePowerShell(profilePath)} ${quotePowerShell(markers.start)} ${quotePowerShell(markers.end)} *> $null`,
+    `    & node -e ${quotePowerShell(cleanupScript)} -- ${quotePowerShell(profilePath)} ${quotePowerShell(markers.start)} ${quotePowerShell(markers.end)} *> $null`,
     '  } catch {}',
     '}'
   ]

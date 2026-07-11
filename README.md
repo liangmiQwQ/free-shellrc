@@ -44,17 +44,17 @@ The supported shell identifiers are:
 type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 ```
 
-`powershell` selects Windows PowerShell 5.1 and is available only on Windows. `pwsh` selects PowerShell 7 or newer. PowerShell profile paths are queried from the requested executable so redirected Documents folders and host-specific paths are respected.
+`powershell` selects Windows PowerShell 5.1 and is available only on Windows. `pwsh` selects PowerShell 7 or newer. The requested executable must be available. PowerShell profile paths are queried from that executable so redirected Documents folders and host-specific paths are respected; execution policy still applies.
 
-## Usage notes
+WSL is a separate Linux environment. Git Bash can use the `bash` adapter when it loads `~/.bashrc`.
 
-- Ask for the user's consent before editing a profile when your product requires it. This library performs the requested installation without prompting.
-- Supply valid shell-specific code without generated marker lines. Commands are inserted as provided, with only their line endings adapted; marker conflicts stop installation without changing the profile.
+## Before installing
+
+- Ask for consent if your product requires it. This library does not prompt.
+- Return valid shell-specific code without generated marker lines. The library does not translate or validate commands.
 - Tell users to restart their shell or reload the profile after a changed installation. `free-shellrc` cannot modify the state of an already-running parent shell.
-- Keep Node.js on `PATH`. If the guarded entry or package manifest disappears, a local helper removes the stale block while preserving the rest of the profile. Cleanup failures do not interrupt shell startup.
-- Handle unavailable requested shells. In particular, requesting `pwsh` requires the `pwsh` executable, and requesting `powershell` requires Windows PowerShell on Windows.
-- PowerShell execution policy is outside this library's scope. A successfully updated profile may still be blocked by the user's policy.
-- WSL is a separate Linux environment. Git Bash can use the `bash` adapter when it loads `~/.bashrc`.
+
+Keep Node.js on `PATH`. If the guarded entry or package manifest disappears, a local helper removes the stale block while preserving the rest of the profile.
 
 ## Errors
 

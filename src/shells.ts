@@ -1,0 +1,119 @@
+import cleanupScriptSource from './cleanup.cjs?raw'
+import type { Markers } from './transform.ts'
+
+export type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
+
+const CLEANUP_LOADER = 'eval(Buffer.from(process.argv.splice(1,1)[0],"base64").toString("utf8"))'
+
+export function createManagedBlock(
+  shell: Shell,
+  command: string,
+  entryPath: string,
+  packagePath: string,
+  profilePath: string,
+  restartPath: string,
+  markers: Markers,
+  lineEnding: string
+): string {
+  const normalizedCommand = command.replaceAll(/\r\n|\n|\r/g, lineEnding)
+  const cleanupScript = Buffer.from(cleanupScriptSource.trim()).toString('base64')
+  const lines =
+    shell === 'fish'
+      ? createFishLines(
+          normalizedCommand,
+          entryPath,
+          packagePath,
+          profilePath,
+          restartPath,
+          markers,
+          cleanupScript
+        )
+      : shell === 'powershell' || shell === 'pwsh'
+        ? createPowerShellLines(
+            normalizedCommand,
+            entryPath,
+            packagePath,
+            profilePath,
+            restartPath,
+            markers,
+            cleanupScript
+          )
+        : createPosixLines(
+            normalizedCommand,
+            entryPath,
+            packagePath,
+            profilePath,
+            restartPath,
+            markers,
+            cleanupScript
+          )
+
+  return [markers.start, ...lines, markers.end, ''].join(lineEnding)
+}
+
+function createPosixLines(
+  command: string,
+  entryPath: string,
+  packagePath: string,
+  profilePath: string,
+  restartPath: string,
+  markers: Markers,
+  cleanupScript: string
+): string[] {
+  return [
+    `if [ -f ${quotePosix(entryPath)} ] && [ -f ${quotePosix(packagePath)} ]; then`,
+    `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
+    command,
+    'else',
+    `  command node -e ${quotePosix(CLEANUP_LOADER)} ${quotePosix(cleanupScript)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1 || true`,
+    'fi'
+  ]
+}
+
+function createFishLines(
+  command: string,
+  entryPath: string,
+  packagePath: string,
+  profilePath: string,
+  restartPath: string,
+  markers: Markers,
+  cleanupScript: string
+): string[] {
+  return [
+    `if test -f ${quotePosix(entryPath)}; and test -f ${quotePosix(packagePath)}`,
+    `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
+    command,
+    'else',
+    `  command node -e ${quotePosix(CLEANUP_LOADER)} ${quotePosix(cleanupScript)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1; or true`,
+    'end'
+  ]
+}
+
+function createPowerShellLines(
+  command: string,
+  entryPath: string,
+  packagePath: string,
+  profilePath: string,
+  restartPath: string,
+  markers: Markers,
+  cleanupScript: string
+): string[] {
+  return [
+    `if ((Test-Path -LiteralPath ${quotePowerShell(entryPath)} -PathType Leaf) -and (Test-Path -LiteralPath ${quotePowerShell(packagePath)} -PathType Leaf)) {`,
+    `  Remove-Item -LiteralPath ${quotePowerShell(restartPath)} -Force -ErrorAction SilentlyContinue`,
+    command,
+    '} else {',
+    '  try {',
+    `    & node -e ${quotePowerShell(CLEANUP_LOADER)} ${quotePowerShell(cleanupScript)} ${quotePowerShell(profilePath)} ${quotePowerShell(markers.start)} ${quotePowerShell(markers.end)} *> $null`,
+    '  } catch {}',
+    '}'
+  ]
+}
+
+function quotePosix(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`
+}
+
+function quotePowerShell(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`
+}

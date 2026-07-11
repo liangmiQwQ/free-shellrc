@@ -7,6 +7,7 @@ import {
   lstat,
   mkdtemp,
   mkdir,
+  readdir,
   readFile,
   rm,
   stat,
@@ -26,9 +27,11 @@ const temporaryDirectories: string[] = []
 const temporaryRestartPaths: string[] = []
 const originalEnvironment = {
   HOME: process.env.HOME,
+  LOCALAPPDATA: process.env.LOCALAPPDATA,
   PATH: process.env.PATH,
   SHELL: process.env.SHELL,
   XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+  XDG_STATE_HOME: process.env.XDG_STATE_HOME,
   ZDOTDIR: process.env.ZDOTDIR
 }
 
@@ -62,7 +65,7 @@ it('installs a Bash block once without changing user content', async () => {
 })
 
 it.each(['bash', 'zsh', 'fish', 'powershell', 'pwsh'] as const)(
-  'writes the cleanup script as readable source for %s',
+  'calls an external cleanup script for %s',
   shell => {
     const markers = createMarkers('demo')
     const block = createManagedBlock(
@@ -72,25 +75,28 @@ it.each(['bash', 'zsh', 'fish', 'powershell', 'pwsh'] as const)(
       "/tmp/demo's/package.json",
       "/tmp/demo's/profile",
       '/tmp/demo.restart',
+      "/tmp/demo's/cleanup.cjs",
       markers,
       '\n'
     )
 
-    expect(block).toContain('function cleanup()')
-    expect(block).not.toMatch(/base64|eval\(/i)
+    expect(block).not.toContain('function cleanup()')
+    expect(Buffer.byteLength(block)).toBeLessThan(1024)
 
     const powerShell = shell === 'powershell' || shell === 'pwsh'
     const quotedProfile = powerShell ? "'/tmp/demo''s/profile'" : `'/tmp/demo'"'"'s/profile'`
-    const cleanupCommand = powerShell ? '    & node -e' : '  command node -e'
+    const quotedCleanup = powerShell
+      ? "'/tmp/demo''s/cleanup.cjs'"
+      : `'/tmp/demo'"'"'s/cleanup.cjs'`
+    const cleanupCommand = powerShell ? '    & node' : '  command node'
     const failureGuard = powerShell
       ? ' *> $null'
       : shell === 'fish'
         ? ' >/dev/null 2>&1; or true'
         : ' >/dev/null 2>&1 || true'
 
-    expect(block).toContain(`${cleanupCommand} '\n// This script only removes`)
     expect(block).toContain(
-      `\n' -- ${quotedProfile} '${markers.start}' '${markers.end}'${failureGuard}`
+      `${cleanupCommand} ${quotedCleanup} ${quotedProfile} '${markers.start}' '${markers.end}'${failureGuard}`
     )
   }
 )
@@ -253,6 +259,9 @@ it.skipIf(platform() === 'win32').each(['entry', 'package'] as const)(
 
     prepareGuard(home)
     await installShellrc(() => `printf loaded > ${quotePosix(output)}`, ['bash'])
+    const stateRoot = stateRootForTest(home)
+    const [cleanupDirectoryName] = await readdir(stateRoot)
+    const cleanupDirectory = join(stateRoot, cleanupDirectoryName)
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
     await expect(readFile(output, 'utf8')).resolves.toBe('loaded')
 
@@ -267,8 +276,26 @@ it.skipIf(platform() === 'win32').each(['entry', 'package'] as const)(
 
     await expect(readFile(profile, 'utf8')).resolves.toBe(original)
     await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(cleanupDirectory)).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   }
 )
+
+it('restores a missing cleanup helper without changing the profile', async () => {
+  const home = await createHome()
+
+  await installShellrc(() => 'demo init', ['bash'])
+  const [cleanupDirectoryName] = await readdir(stateRootForTest(home))
+  expect(cleanupDirectoryName).not.toMatch(/demo|free-shellrc/)
+  const cleanupDirectory = join(stateRootForTest(home), cleanupDirectoryName)
+  const [cleanupFile] = await readdir(cleanupDirectory)
+  const cleanupPath = join(cleanupDirectory, cleanupFile)
+  await rm(cleanupPath)
+
+  await expect(installShellrc(() => 'demo init', ['bash'])).resolves.toBeFalsy()
+  await expect(readFile(cleanupPath, 'utf8')).resolves.toContain('function cleanup()')
+})
 
 it.skipIf(platform() === 'win32')('queries pwsh for its profile path', async () => {
   const home = await createHome()
@@ -295,7 +322,9 @@ it.skipIf(platform() === 'win32')('reports Windows PowerShell as unavailable', a
 async function createHome(): Promise<string> {
   const home = await createTemporaryDirectory()
   process.env.HOME = home
+  process.env.LOCALAPPDATA = join(home, 'state')
   process.env.SHELL = '/bin/bash'
+  process.env.XDG_STATE_HOME = join(home, 'state')
   delete process.env.ZDOTDIR
   delete process.env.XDG_CONFIG_HOME
   prepareGuard(home)
@@ -320,6 +349,12 @@ async function createTemporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'free-shellrc-'))
   temporaryDirectories.push(directory)
   return directory
+}
+
+function stateRootForTest(home: string): string {
+  return platform() === 'darwin'
+    ? join(home, 'Library', 'Application Support')
+    : join(home, 'state')
 }
 
 function restoreEnvironment(): void {

@@ -1,12 +1,19 @@
 // This script only removes its managed profile block after the owning package is uninstalled.
-// Template literals keep the embedded source readable inside shell single quotes.
+// Template literals keep the generated helper readable.
 const crypto = require(`node:crypto`)
 const fs = require(`node:fs`)
 const path = require(`node:path`)
 
-const [, profile, startMarker, endMarker] = process.argv
+const [profile, startMarker, endMarker] = process.argv.slice(2)
 
-cleanup()
+if (cleanup()) {
+  try {
+    fs.unlinkSync(__filename)
+    fs.rmdirSync(path.dirname(__filename))
+  } catch {
+    /* Self-removal failure must not affect profile cleanup. */
+  }
+}
 
 function cleanup() {
   /* 1. Read and decode the profile without losing its original encoding. */
@@ -67,19 +74,19 @@ function cleanup() {
   for (const line of lines) {
     if (line.content === startMarker) {
       if (opening) {
-        return
+        return false
       }
       opening = line
     } else if (line.content === endMarker) {
       if (!opening) {
-        return
+        return false
       }
       blocks.push({ start: opening, end: line })
       opening = undefined
     }
   }
   if (opening || blocks.length === 0) {
-    return
+    return false
   }
 
   /* 3. Remove managed blocks while preserving every other character. */
@@ -117,7 +124,7 @@ function cleanup() {
 
   /* 5. Replace the resolved target only if it has not changed. */
   if (!fs.readFileSync(target).equals(original)) {
-    return
+    return false
   }
   const temporary = path.join(
     path.dirname(target),
@@ -137,4 +144,5 @@ function cleanup() {
       /* Cleanup failure must not hide the original result. */
     }
   }
+  return true
 }

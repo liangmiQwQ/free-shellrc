@@ -99,7 +99,9 @@ When a shell loads the block, it first checks that both the JavaScript entry pas
 
 The availability guard and cleanup routine are library-generated implementation details for Bash, Zsh, Fish, Windows PowerShell, and PowerShell 7. They must not rewrite or reinterpret the caller-provided command. A cleanup failure must not prevent the rest of the user's profile from loading.
 
-The cleanup program is maintained as a standalone JavaScript source file and imported as raw text during the library build. The built library embeds that source readably into each managed block without encoding it; a profile must not load the cleanup program from the installed package at runtime because cleanup must continue to work after the package is removed.
+The cleanup program is maintained as a standalone JavaScript source file and imported as raw text during the library build. Installation writes a copy outside the package to an opaque package-specific directory in the operating system's persistent per-user state directory. The directory name does not expose either the downstream package name or `free-shellrc`, and each shell profile receives its own helper identified by the shell and profile path. The managed block invokes that copy so cleanup continues after the package is removed without embedding the program in the profile.
+
+After a helper successfully removes its managed block, it removes itself and then removes its directory when no other profile helpers remain. A missing helper must not prevent the rest of the profile from loading. Installing or updating a block recreates its helper when needed, including when the profile block itself is unchanged.
 
 Installation follows these rules:
 

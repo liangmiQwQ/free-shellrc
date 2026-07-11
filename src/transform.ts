@@ -19,10 +19,10 @@ export interface Markers {
   start: string
 }
 
-export function createMarkers(productName: string): Markers {
+export function createMarkers(packageName: string): Markers {
   return {
-    start: `# >>> _${productName}_START >>>`,
-    end: `# <<< _${productName}_END <<<`
+    start: `# >>> _${packageName}_START >>>`,
+    end: `# <<< _${packageName}_END <<<`
   }
 }
 

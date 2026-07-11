@@ -6,7 +6,7 @@ export type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 export function createManagedBlock(
   shell: Shell,
   command: string,
-  productName: string,
+  packageName: string,
   profilePath: string,
   restartPath: string,
   markers: Markers,
@@ -18,7 +18,7 @@ export function createManagedBlock(
     shell === 'fish'
       ? createFishLines(
           normalizedCommand,
-          productName,
+          packageName,
           profilePath,
           restartPath,
           markers,
@@ -27,7 +27,7 @@ export function createManagedBlock(
       : shell === 'powershell' || shell === 'pwsh'
         ? createPowerShellLines(
             normalizedCommand,
-            productName,
+            packageName,
             profilePath,
             restartPath,
             markers,
@@ -35,7 +35,7 @@ export function createManagedBlock(
           )
         : createPosixLines(
             normalizedCommand,
-            productName,
+            packageName,
             profilePath,
             restartPath,
             markers,
@@ -47,14 +47,14 @@ export function createManagedBlock(
 
 function createPosixLines(
   command: string,
-  productName: string,
+  packageName: string,
   profilePath: string,
   restartPath: string,
   markers: Markers,
   cleanupScript: string
 ): string[] {
   return [
-    `if command -v -- ${quotePosix(productName)} >/dev/null 2>&1; then`,
+    `if command -v -- ${quotePosix(packageName)} >/dev/null 2>&1; then`,
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
     command,
     'else',
@@ -65,14 +65,14 @@ function createPosixLines(
 
 function createFishLines(
   command: string,
-  productName: string,
+  packageName: string,
   profilePath: string,
   restartPath: string,
   markers: Markers,
   cleanupScript: string
 ): string[] {
   return [
-    `if command --query ${quotePosix(productName)}`,
+    `if command --query ${quotePosix(packageName)}`,
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
     command,
     'else',
@@ -83,14 +83,14 @@ function createFishLines(
 
 function createPowerShellLines(
   command: string,
-  productName: string,
+  packageName: string,
   profilePath: string,
   restartPath: string,
   markers: Markers,
   cleanupScript: string
 ): string[] {
   return [
-    `if (Get-Command -Name ${quotePowerShell(productName)} -ErrorAction SilentlyContinue) {`,
+    `if (Get-Command -Name ${quotePowerShell(packageName)} -ErrorAction SilentlyContinue) {`,
     `  Remove-Item -LiteralPath ${quotePowerShell(restartPath)} -Force -ErrorAction SilentlyContinue`,
     command,
     '} else {',

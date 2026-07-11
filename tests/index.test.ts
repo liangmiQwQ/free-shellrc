@@ -46,14 +46,14 @@ it('installs a Bash block once without changing user content', async () => {
   const userContent = 'export USER_VALUE="kept"'
   await writeFile(profile, userContent)
 
-  await expect(installShellrc({ bash: "alias demo='demo shell'" }, 'demo')).resolves.toBeTruthy()
+  await expect(installShellrc(() => "alias demo='demo shell'", ['bash'])).resolves.toBeTruthy()
   const installed = await readFile(profile, 'utf8')
   const installedMetadata = await stat(profile)
 
   expect(installed.startsWith(`${userContent}${EOL}`)).toBeTruthy()
   expect(installed).toContain('# >>> _demo_START >>>')
   expect(installed).toContain("alias demo='demo shell'")
-  await expect(installShellrc({ bash: "alias demo='demo shell'" }, 'demo')).resolves.toBeFalsy()
+  await expect(installShellrc(() => "alias demo='demo shell'", ['bash'])).resolves.toBeFalsy()
   await expect(stat(profile)).resolves.toMatchObject({ ino: installedMetadata.ino })
 })
 
@@ -63,14 +63,15 @@ it.skipIf(platform() === 'win32')(
     const home = await createHome()
     const profile = join(home, '.bashrc')
 
-    await installShellrc({ bash: 'true' }, 'bash')
+    prepareGuard(home, 'bash')
+    await installShellrc(() => 'true', ['bash'])
 
     expect(() => {
-      prepareGuard(home)
+      prepareGuard(home, 'bash')
     }).toThrow(expect.objectContaining({ code: 'ERR_SHELL_RESTART_REQUIRED' }))
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
     expect(() => {
-      prepareGuard(home)
+      prepareGuard(home, 'bash')
     }).not.toThrow()
   }
 )
@@ -84,12 +85,21 @@ it.skipIf(platform() === 'win32')('rejects an unsupported current shell', async 
   }).toThrow(expect.objectContaining({ code: 'ERR_UNSUPPORTED_SHELL' }))
 })
 
+it('installs only the current shell when no shell list is provided', async () => {
+  const home = await createHome()
+
+  await installShellrc(shellType => `command-for-${shellType}`)
+
+  await expect(readFile(join(home, '.bashrc'), 'utf8')).resolves.toContain('command-for-bash')
+  await expect(readFile(join(home, '.zshrc'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
 it('uses an existing CRLF line ending for the managed block', async () => {
   const home = await createHome()
   const profile = join(home, '.bashrc')
   await writeFile(profile, 'export KEEP=1\r\n')
 
-  await installShellrc({ bash: 'first line\nsecond line' }, 'demo')
+  await installShellrc(() => 'first line\nsecond line', ['bash'])
   const installed = await readFile(profile, 'utf8')
 
   expect(installed).not.toMatch(/(?<!\r)\n/)
@@ -100,13 +110,13 @@ it('updates the first block in place and removes duplicate blocks', async () => 
   const home = await createHome()
   const profile = join(home, '.bashrc')
   await writeFile(profile, `export BEFORE=1${EOL}`)
-  await installShellrc({ bash: 'old-command' }, 'demo')
+  await installShellrc(() => 'old-command', ['bash'])
   const installed = await readFile(profile, 'utf8')
   const blockStart = installed.indexOf('# >>> _demo_START >>>')
   const block = installed.slice(blockStart)
   await appendFile(profile, `export AFTER=1${EOL}${EOL}${block}`)
 
-  await expect(installShellrc({ bash: 'new-command' }, 'demo')).resolves.toBeTruthy()
+  await expect(installShellrc(() => 'new-command', ['bash'])).resolves.toBeTruthy()
   const updated = await readFile(profile, 'utf8')
 
   expect(updated).not.toContain('old-command')
@@ -123,19 +133,15 @@ it('does not write a profile containing malformed markers', async () => {
   const malformed = `export KEEP=1${EOL}# >>> _demo_START >>>${EOL}`
   await writeFile(profile, malformed)
 
-  await expect(installShellrc({ bash: 'demo init' }, 'demo')).rejects.toMatchObject({
+  await expect(installShellrc(() => 'demo init', ['bash'])).rejects.toMatchObject({
     code: 'ERR_INVALID_MARKERS'
   })
   await expect(readFile(profile, 'utf8')).resolves.toBe(malformed)
 })
 
-it('rejects invalid product names and conflicting caller commands', async () => {
-  await expect(installShellrc({ bash: 'demo init' }, 'not valid')).rejects.toMatchObject({
-    code: 'ERR_INVALID_PRODUCT_NAME'
-  })
-
+it('rejects conflicting caller commands', async () => {
   const home = await createHome()
-  await expect(installShellrc({ bash: '# >>> _demo_START >>>' }, 'demo')).rejects.toMatchObject({
+  await expect(installShellrc(() => '# >>> _demo_START >>>', ['bash'])).rejects.toMatchObject({
     code: 'ERR_INVALID_MARKERS'
   })
   await expect(readFile(join(home, '.bashrc'))).rejects.toMatchObject({ code: 'ENOENT' })
@@ -149,7 +155,7 @@ it.each(['utf8-bom', 'utf16le', 'utf16be'] as const)(
     const original = encodeForTest(`export KEEP=é${EOL}`, encoding)
     await writeFile(profile, original)
 
-    await installShellrc({ bash: 'demo init' }, 'demo')
+    await installShellrc(() => 'demo init', ['bash'])
     const installed = await readFile(profile)
 
     expect(bomFor(encoding).every((byte, index) => installed[index] === byte)).toBeTruthy()
@@ -164,7 +170,7 @@ it('rejects invalid unmarked UTF-8 without writing', async () => {
   const invalid = Buffer.from([255, 97])
   await writeFile(profile, invalid)
 
-  await expect(installShellrc({ bash: 'demo init' }, 'demo')).rejects.toMatchObject({
+  await expect(installShellrc(() => 'demo init', ['bash'])).rejects.toMatchObject({
     code: 'ERR_UNSUPPORTED_ENCODING'
   })
   await expect(readFile(profile)).resolves.toStrictEqual(invalid)
@@ -176,7 +182,7 @@ it('rejects UTF-32 LE without treating it as UTF-16 LE', async () => {
   const unsupported = Buffer.from([255, 254, 0, 0, 97, 0, 0, 0])
   await writeFile(profile, unsupported)
 
-  await expect(installShellrc({ bash: 'demo init' }, 'demo')).rejects.toMatchObject({
+  await expect(installShellrc(() => 'demo init', ['bash'])).rejects.toMatchObject({
     code: 'ERR_UNSUPPORTED_ENCODING'
   })
   await expect(readFile(profile)).resolves.toStrictEqual(unsupported)
@@ -191,7 +197,7 @@ it.skipIf(platform() === 'win32')('keeps a profile symlink and target permission
   await chmod(target, 0o640)
   await symlink(target, profile)
 
-  await installShellrc({ bash: 'demo init' }, 'demo')
+  await installShellrc(() => 'demo init', ['bash'])
 
   expect((await lstat(profile)).isSymbolicLink()).toBeTruthy()
   expect((await stat(target)).mode & 0o777).toBe(0o640)
@@ -207,12 +213,14 @@ it.skipIf(platform() === 'win32')(
     const original = 'export KEEP=1'
     await writeFile(profile, original)
 
-    await installShellrc({ bash: `printf loaded > ${quotePosix(output)}` }, 'bash')
+    prepareGuard(home, 'bash')
+    await installShellrc(() => `printf loaded > ${quotePosix(output)}`, ['bash'])
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
     await expect(readFile(output, 'utf8')).resolves.toBe('loaded')
 
     await writeFile(profile, original)
-    await installShellrc({ bash: `printf should-not-run > ${quotePosix(output)}` }, 'missing-demo')
+    prepareGuard(home, 'missing-demo')
+    await installShellrc(() => `printf should-not-run > ${quotePosix(output)}`, ['bash'])
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
 
     await expect(readFile(profile, 'utf8')).resolves.toBe(original)
@@ -231,13 +239,13 @@ it.skipIf(platform() === 'win32')('queries pwsh for its profile path', async () 
   process.env.PATH = `${bin}:${process.env.PATH}`
   process.env.FREE_SHELLRC_PROFILE = profile
 
-  await installShellrc({ pwsh: 'demo init' }, 'demo')
+  await installShellrc(() => 'demo init', ['pwsh'])
 
   await expect(readFile(profile, 'utf8')).resolves.toContain('demo init')
 })
 
 it.skipIf(platform() === 'win32')('reports Windows PowerShell as unavailable', async () => {
-  await expect(installShellrc({ powershell: 'demo init' }, 'demo')).rejects.toMatchObject({
+  await expect(installShellrc(() => 'demo init', ['powershell'])).rejects.toMatchObject({
     code: 'ERR_UNAVAILABLE_SHELL'
   })
 })
@@ -252,8 +260,7 @@ async function createHome(): Promise<string> {
   return home
 }
 
-function prepareGuard(home: string): void {
-  const packageName = `free-shellrc-test-${createHash('sha256').update(home).digest('hex').slice(0, 12)}`
+function prepareGuard(home: string, packageName = 'demo'): void {
   const packageDirectory = join(home, 'package')
   const entryPath = join(packageDirectory, 'entry.mjs')
   mkdirSync(packageDirectory, { recursive: true })

@@ -12,29 +12,29 @@ vp install free-shellrc
 
 ## Use
 
-Pass the shell-specific commands to install and the name of your executable:
+Pass a shell-specific command factory. By default, the library installs only for the shell that is currently running:
 
 ```ts
 import { installShellrc, shellrcGuard } from 'free-shellrc'
 
 shellrcGuard(import.meta.url)
 
-const changed = await installShellrc(
-  {
-    bash: 'eval "$(acme shell-init bash)"',
-    zsh: 'eval "$(acme shell-init zsh)"',
-    fish: 'acme shell-init fish | source',
-    pwsh: 'acme shell-init pwsh | Invoke-Expression'
-  },
-  'acme'
-)
+const changed = await installShellrc(shellType => {
+  if (shellType === 'fish') {
+    return 'acme shell-init fish | source'
+  }
+  if (shellType === 'powershell' || shellType === 'pwsh') {
+    return `acme shell-init ${shellType} | Invoke-Expression`
+  }
+  return `eval "$(acme shell-init ${shellType})"`
+})
 
 if (changed) {
   console.log('Restart your shell or reload its profile to use the integration.')
 }
 ```
 
-Only include shells your application supports. The promise resolves to `true` if at least one profile changed and `false` if every requested profile already contained the same managed block.
+Pass a second argument such as `['bash', 'zsh', 'fish']` to install for an explicit set of shells. The command factory runs once for each selected shell. The promise resolves to `true` if at least one profile changed and `false` if every selected profile already contained the same managed block.
 
 Call `shellrcGuard(import.meta.url)` at the top of the complete application entry, before other application code. The guard rejects unsupported shells. After the first managed block is installed, it also stops later invocations until the shell loads that block once. Loading the block removes a temporary restart marker, so users must restart the shell before running the application again.
 
@@ -50,8 +50,8 @@ type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 
 - Ask for the user's consent before editing a profile when your product requires it. This library performs the requested installation without prompting.
 - Call `shellrcGuard(import.meta.url)` before other application code. The entry must be inside a package with a named `package.json`.
-- Choose the target shells explicitly. The guard detects the current shell only to reject unsupported terminals; installation still uses the shells supplied by the caller.
-- Use the real executable name as `productName`. It must match `[A-Za-z0-9._-]+` and must be discoverable on `PATH` when the profile loads.
+- Omit the shell list to configure only the current shell, or provide a `Shell[]` to configure several profiles explicitly.
+- Give the downstream package a stable `name` in `package.json`. The library derives its managed markers and stale-installation identity from that name.
 - Supply valid code for each shell. Commands are inserted as provided, with only their line endings adapted to the profile; they are not translated or validated as shell syntax.
 - Do not include the generated marker lines in a command. Marker conflicts stop the installation without writing the profile.
 - Tell users to restart their shell or reload the profile after a changed installation. `free-shellrc` cannot modify the state of an already-running parent shell.
@@ -66,7 +66,6 @@ Expected conflicts are normal `Error` objects with a stable `code` property. The
 
 | Code                            | Meaning                                                                                        |
 | ------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `ERR_INVALID_PRODUCT_NAME`      | `productName` does not match the required pattern.                                             |
 | `ERR_INVALID_MARKERS`           | A profile or caller command contains incomplete, reversed, nested, or conflicting markers.     |
 | `ERR_PACKAGE_NOT_FOUND`         | The guarded entry has no ancestor `package.json` with a package name.                          |
 | `ERR_SHELL_RESTART_REQUIRED`    | The first installation has not yet been loaded by a restarted shell.                           |
@@ -85,7 +84,7 @@ import type { ShellrcErrorCode } from 'free-shellrc'
 shellrcGuard(import.meta.url)
 
 try {
-  await installShellrc({ bash: 'acme shell-init bash' }, 'acme')
+  await installShellrc(shellType => `acme shell-init ${shellType}`, ['pwsh'])
 } catch (error) {
   const code = (error as Error & { code?: ShellrcErrorCode }).code
   if (code === 'ERR_UNAVAILABLE_SHELL') {

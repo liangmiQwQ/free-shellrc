@@ -42,17 +42,19 @@ The public API contains a guard and an installation function:
 ```ts
 export function shellrcGuard(entry: string | URL): void
 
-export function installShellrc<RequestedShell extends Shell>(
-  shellCommand: Record<RequestedShell, string>,
-  productName: string
+export function installShellrc(
+  commands: (shellType: Shell) => string,
+  shell?: Shell[]
 ): Promise<boolean>
 ```
 
 The downstream application must call `shellrcGuard(import.meta.url)` at the top of its complete entry, before other application logic. The guard locates the nearest named `package.json`, rejects terminals whose current shell is unsupported, and rejects application invocations while a first-install restart marker exists.
 
-`shellCommand` contains the caller-provided command for each requested shell. The library resolves the corresponding current-user profiles and installs each command in the managed block for that shell. Commands are shell-specific and are not translated between shell languages.
+`commands` produces the caller-provided command for a selected shell. The command remains shell-specific and is not translated between shell languages.
 
-`productName` identifies the owning product. It must match `[A-Za-z0-9._-]+` and is used in the managed block's comment markers and in its stale-installation check.
+When `shell` is omitted, installation targets the current shell detected by `shellrcGuard`. When it is provided, installation targets each listed shell in order. The library resolves the corresponding current-user profiles and invokes `commands` once for each selected shell.
+
+The package name discovered by `shellrcGuard` identifies the owning product and is used in the managed block's comment markers and stale-installation check. Callers cannot supply a separate product identity.
 
 The promise resolves to `true` when at least one profile changes and `false` when every profile already contains the requested block. Installing the same commands twice therefore returns `false` and does not write any file.
 
@@ -80,20 +82,20 @@ The Bash default intentionally targets interactive non-login shells. Login-shell
 
 ## Managed blocks
 
-Every product has a stable name matching `[A-Za-z0-9._-]+`. The library uses comments to mark the complete area it owns:
+Every downstream package has a stable package name. The library uses comments to mark the complete area it owns:
 
 ```text
-# >>> _<productName>_START >>>
-# <<< _<productName>_END <<<
+# >>> _<packageName>_START >>>
+# <<< _<packageName>_END <<<
 ```
 
-Markers occupy complete lines and are matched exactly. They are derived from `productName`; callers cannot override them.
+Markers occupy complete lines and are matched exactly. They are derived from the downstream package name; callers cannot override them.
 
 An installed block contains the opening marker, a shell-specific product-availability guard, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
 
 The first time a product block is added, installation creates a package-specific file in the operating system's temporary directory. A supported shell removes that file when it loads the new block and confirms the product is available. Until then, `shellrcGuard` reports `ERR_SHELL_RESTART_REQUIRED`. This makes the required restart enforceable instead of relying only on caller messaging. Updating or repairing an existing block does not recreate the restart marker.
 
-When a shell loads the block, it first checks whether `productName` is available as a command. If it is available, the block executes only the caller-provided command. If it is unavailable, the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
+When a shell loads the block, it first checks whether the package name is available as a command. If it is available, the block executes only the caller-provided command. If it is unavailable, the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
 
 The availability guard and cleanup routine are library-generated implementation details for Bash, Zsh, Fish, Windows PowerShell, and PowerShell 7. They must not rewrite or reinterpret the caller-provided command. A cleanup failure must not prevent the rest of the user's profile from loading.
 
@@ -154,7 +156,7 @@ Self-removal does not delete the profile file, even when removal leaves it empty
 
 Callers are responsible for:
 
-- Choosing which shells to configure.
+- Choosing additional shells to configure when installation should extend beyond the current shell.
 - Generating syntactically valid content for each shell.
 - Asking for user consent before modifying a profile when their product requires it.
 - Telling users when a shell restart or profile reload is needed.
@@ -185,4 +187,4 @@ CI runs on Windows, macOS, and Linux. Shell-specific integration tests query rea
 
 The library can ship before either consumer migrates.
 
-Existing applications adopt it by mapping each supported shell to its generated command and passing that record with the product name to `installShellrc`. Application-specific wrapper and action protocols stay in their existing repositories.
+Existing applications adopt it by calling `shellrcGuard(import.meta.url)` at the top of their entry and passing a shell-aware command factory to `installShellrc`. Application-specific wrapper and action protocols stay in their existing repositories.

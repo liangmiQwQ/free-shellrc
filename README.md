@@ -7,7 +7,7 @@ Safely install product-owned shell integration in the current user's Bash, Zsh, 
 ## Why free-shellrc
 
 - **Self-cleaning after uninstall.** Each managed block checks whether its owning package still exists. If the package has been removed, the block skips the product command and removes itself from that profile. The cleanup helper then removes itself too.
-- **Enforced first restart.** A first-time installation creates a restart marker. `shellrcGuard` rejects later application invocations with `ERR_SHELL_RESTART_REQUIRED` until a new shell loads the managed block. Explicitly reloading the profile also satisfies this requirement.
+- **Enforced first restart.** A first-time installation creates a restart marker. `shellrcGuard` returns `ERR_SHELL_RESTART_REQUIRED` on later application invocations until a new shell loads the managed block. Explicitly reloading the profile also satisfies this requirement.
 - **User-owned content stays user-owned.** Installation changes only the marked region and preserves content outside it byte for byte, along with the existing encoding, line endings, permissions, and symbolic link.
 - **Safe to repeat and update.** Reinstalling identical commands does not rewrite the profile. Changed commands replace the existing block in place, and malformed or concurrently changed profiles are not overwritten.
 
@@ -26,26 +26,35 @@ Pass a shell-specific command factory. By default, the library installs only for
 ```ts
 import { installShellrc, shellrcGuard } from 'free-shellrc'
 
-shellrcGuard(import.meta.url)
-
-const changed = await installShellrc(shellType => {
-  if (shellType === 'fish') {
-    return 'acme shell-init fish | source'
+async function main() {
+  const guardError = shellrcGuard(import.meta.url)
+  if (guardError) {
+    console.error(guardError.message)
+    process.exitCode = 1
+    return
   }
-  if (shellType === 'powershell' || shellType === 'pwsh') {
-    return `acme shell-init ${shellType} | Invoke-Expression`
-  }
-  return `eval "$(acme shell-init ${shellType})"`
-})
 
-if (changed) {
-  console.log('Restart your shell or reload its profile to use the integration.')
+  const changed = await installShellrc(shellType => {
+    if (shellType === 'fish') {
+      return 'acme shell-init fish | source'
+    }
+    if (shellType === 'powershell' || shellType === 'pwsh') {
+      return `acme shell-init ${shellType} | Invoke-Expression`
+    }
+    return `eval "$(acme shell-init ${shellType})"`
+  })
+
+  if (changed) {
+    console.log('Restart your shell or reload its profile to use the integration.')
+  }
 }
+
+await main()
 ```
 
 Pass a second argument such as `['bash', 'zsh', 'fish']` to install for an explicit set of shells. The command factory runs once for each selected shell. The promise resolves to `true` if at least one profile changed and `false` if every selected profile already contained the same managed block.
 
-Call `shellrcGuard(import.meta.url)` at the top of the complete application entry, before other application code. The entry must belong to a package with a stable `name`. The guard rejects unsupported shells and, after the first installation, stops later invocations until a restarted shell or explicitly reloaded profile loads the managed block once.
+Call `shellrcGuard(import.meta.url)` at the start of the complete application entry and return before other application code when it produces an error. The entry must belong to a package with a stable `name`. After the first installation, the guard continues returning an error until a restarted shell or explicitly reloaded profile loads the managed block once.
 
 ## Shell support
 
@@ -79,7 +88,9 @@ If the guarded entry or package manifest disappears, the local cleanup helper re
 
 ## Errors
 
-Expected conflicts are normal `Error` objects with a stable `code` property. The exported `ShellrcErrorCode` type contains:
+`shellrcGuard` returns an `Error` when startup should stop and `undefined` when it may continue. It does not throw. Installation errors still reject the `installShellrc` promise because they represent a failed profile operation.
+
+Errors created by `free-shellrc` have a stable `code` property. The exported `ShellrcErrorCode` type contains:
 
 | Code                            | Meaning                                                                                        |
 | ------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -92,23 +103,7 @@ Expected conflicts are normal `Error` objects with a stable `code` property. The
 | `ERR_UNSUPPORTED_SHELL`         | The current terminal is using a shell that the library does not support.                       |
 | `ERR_CONCURRENT_PROFILE_CHANGE` | The profile changed between reading and replacement, so the newer content was not overwritten. |
 
-Filesystem and permission failures retain their original error and cause where applicable.
-
-```ts
-import { shellrcGuard } from 'free-shellrc'
-import type { ShellrcErrorCode } from 'free-shellrc'
-
-shellrcGuard(import.meta.url)
-
-try {
-  await installShellrc(shellType => `acme shell-init ${shellType}`, ['pwsh'])
-} catch (error) {
-  const code = (error as Error & { code?: ShellrcErrorCode }).code
-  if (code === 'ERR_UNAVAILABLE_SHELL') {
-    // Ask the user to install or deselect the requested shell.
-  }
-}
-```
+Filesystem and permission failures retain their original error and cause where applicable. Use the guard error's `code` when a message or exit path needs to differ by reason; the main example handles every guard error before continuing.
 
 ## Profile locations
 

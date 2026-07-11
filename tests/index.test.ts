@@ -111,13 +111,9 @@ it.skipIf(platform() === 'win32')(
     prepareGuard(home, 'bash')
     await installShellrc(() => 'true', ['bash'])
 
-    expect(() => {
-      prepareGuard(home, 'bash')
-    }).toThrow(expect.objectContaining({ code: 'ERR_SHELL_RESTART_REQUIRED' }))
+    expect(prepareGuard(home, 'bash')).toMatchObject({ code: 'ERR_SHELL_RESTART_REQUIRED' })
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
-    expect(() => {
-      prepareGuard(home, 'bash')
-    }).not.toThrow()
+    expect(prepareGuard(home, 'bash')).toBeUndefined()
   }
 )
 
@@ -125,9 +121,7 @@ it.skipIf(platform() === 'win32')('rejects an unsupported current shell', async 
   const home = await createHome()
   process.env.SHELL = '/bin/nu'
 
-  expect(() => {
-    prepareGuard(home)
-  }).toThrow(expect.objectContaining({ code: 'ERR_UNSUPPORTED_SHELL' }))
+  expect(prepareGuard(home)).toMatchObject({ code: 'ERR_UNSUPPORTED_SHELL' })
 })
 
 it('accepts import.meta.url as the application entry', async () => {
@@ -142,9 +136,7 @@ it('accepts import.meta.url as the application entry', async () => {
 
   try {
     process.chdir(home)
-    expect(() => {
-      shellrcGuard(pathToFileURL(entryPath).href)
-    }).not.toThrow()
+    expect(shellrcGuard(pathToFileURL(entryPath).href)).toBeUndefined()
   } finally {
     process.chdir(originalWorkingDirectory)
   }
@@ -348,11 +340,14 @@ async function createHome(): Promise<string> {
   process.env.XDG_STATE_HOME = join(home, 'state')
   delete process.env.ZDOTDIR
   delete process.env.XDG_CONFIG_HOME
-  prepareGuard(home)
+  const error = prepareGuard(home)
+  if (error) {
+    throw error
+  }
   return home
 }
 
-function prepareGuard(home: string, packageName = 'demo'): void {
+function prepareGuard(home: string, packageName = 'demo'): ReturnType<typeof shellrcGuard> {
   const packageDirectory = join(home, 'package')
   const entryPath = join(packageDirectory, 'entry.mjs')
   mkdirSync(packageDirectory, { recursive: true })
@@ -363,7 +358,7 @@ function prepareGuard(home: string, packageName = 'demo'): void {
   if (!temporaryRestartPaths.includes(restartPath)) {
     temporaryRestartPaths.push(restartPath)
   }
-  shellrcGuard(entryPath)
+  return shellrcGuard(entryPath)
 }
 
 async function createTemporaryDirectory(): Promise<string> {

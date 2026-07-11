@@ -5,7 +5,8 @@ import { platform, tmpdir } from 'node:os'
 import { basename, dirname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createShellrcError } from './errors.ts'
+import { createShellrcError, normalizeShellrcError } from './errors.ts'
+import type { ShellrcError } from './errors.ts'
 import type { Shell } from './shells.ts'
 
 export interface ShellrcContext {
@@ -18,31 +19,37 @@ export interface ShellrcContext {
 
 let activeContext: ShellrcContext | undefined
 
-export function shellrcGuard(entry: string | URL): void {
+/** The returned value must be checked before other application logic runs. */
+export function shellrcGuard(entry: string | URL): ShellrcError | undefined {
   activeContext = undefined
-  const entryPath = resolveEntryPath(entry)
-  const packageMetadata = findPackageMetadata(entryPath)
-  const shell = detectCurrentShell()
-  if (!shell) {
-    throw createShellrcError(
-      'ERR_UNSUPPORTED_SHELL',
-      'The current terminal is not using Bash, Zsh, Fish, Windows PowerShell, or PowerShell 7.'
-    )
-  }
+  try {
+    const entryPath = resolveEntryPath(entry)
+    const packageMetadata = findPackageMetadata(entryPath)
+    const shell = detectCurrentShell()
+    if (!shell) {
+      throw createShellrcError(
+        'ERR_UNSUPPORTED_SHELL',
+        'The current terminal is not using Bash, Zsh, Fish, Windows PowerShell, or PowerShell 7.'
+      )
+    }
 
-  const restartPath = createRestartPath(packageMetadata.name)
-  activeContext = {
-    entryPath,
-    packageName: packageMetadata.name,
-    packagePath: packageMetadata.path,
-    restartPath,
-    shell
-  }
-  if (existsSync(restartPath)) {
-    throw createShellrcError(
-      'ERR_SHELL_RESTART_REQUIRED',
-      'Restart the current shell before running this command again.'
-    )
+    const restartPath = createRestartPath(packageMetadata.name)
+    if (existsSync(restartPath)) {
+      throw createShellrcError(
+        'ERR_SHELL_RESTART_REQUIRED',
+        'Restart the current shell before running this command again.'
+      )
+    }
+    activeContext = {
+      entryPath,
+      packageName: packageMetadata.name,
+      packagePath: packageMetadata.path,
+      restartPath,
+      shell
+    }
+    return undefined
+  } catch (error) {
+    return normalizeShellrcError(error)
   }
 }
 

@@ -40,7 +40,9 @@ Bash and Zsh share a shell language in many cases, but they remain separate iden
 The public API contains a guard and an installation function:
 
 ```ts
-export function shellrcGuard(entry: string | URL): void
+export type ShellrcError = Error & { code?: string }
+
+export function shellrcGuard(entry: string | URL): ShellrcError | undefined
 
 export function installShellrc(
   commands: (shellType: Shell) => string,
@@ -48,7 +50,7 @@ export function installShellrc(
 ): Promise<boolean>
 ```
 
-The downstream application must call `shellrcGuard(import.meta.url)` at the top of its complete entry, before other application logic. The guard locates the nearest named `package.json`, rejects terminals whose current shell is unsupported, and rejects application invocations while a first-install restart marker exists.
+The downstream application must call `shellrcGuard(import.meta.url)` at the top of its complete entry, before other application logic. The guard locates the nearest named `package.json` and returns an error when the current shell is unsupported or a first-install restart marker exists.
 
 `commands` produces the caller-provided command for a selected shell. The command remains shell-specific and is not translated between shell languages.
 
@@ -58,7 +60,7 @@ The package name discovered by `shellrcGuard` identifies the owning product and 
 
 The promise resolves to `true` when at least one profile changes and `false` when every profile already contains the requested block. Installing the same commands twice therefore returns `false` and does not write any file.
 
-Expected conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
+`shellrcGuard` returns an error when the application should stop and `undefined` when it may continue, so callers do not need a `try`/`catch` around startup control flow. Installation failures reject the promise. Expected conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
 
 ## Profile resolution
 
@@ -168,7 +170,7 @@ Callers are responsible for:
 
 `free-shellrc` does not execute the installed command during installation. The user's shell executes it when loading the managed block and the product is still available.
 
-The application must place `shellrcGuard(import.meta.url)` before other entry logic so an unsupported shell or pending restart stops the complete application consistently.
+The application must place `shellrcGuard(import.meta.url)` before other entry logic and stop when it returns an error so an unsupported shell or pending restart stops the complete application consistently.
 
 ## Verification
 

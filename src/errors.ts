@@ -8,12 +8,16 @@ export type ShellrcErrorCode =
   | 'ERR_UNSUPPORTED_SHELL'
   | 'ERR_UNSUPPORTED_ENCODING'
 
-export type ShellrcError = Error & { code: ShellrcErrorCode }
+export type ShellrcError = Error & { code?: string }
 
 export function createShellrcError(
   code: ShellrcErrorCode,
   message: string,
   options?: ErrorOptions
-): ShellrcError {
+): ShellrcError & { code: ShellrcErrorCode } {
   return Object.assign(new Error(message, options), { code })
+}
+
+export function normalizeShellrcError(error: unknown): ShellrcError {
+  return error instanceof Error ? error : new Error(String(error), { cause: error })
 }

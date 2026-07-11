@@ -36,7 +36,7 @@ if (changed) {
 
 Pass a second argument such as `['bash', 'zsh', 'fish']` to install for an explicit set of shells. The command factory runs once for each selected shell. The promise resolves to `true` if at least one profile changed and `false` if every selected profile already contained the same managed block.
 
-Call `shellrcGuard(import.meta.url)` at the top of the complete application entry, before other application code. The guard rejects unsupported shells. After the first managed block is installed, it also stops later invocations until the shell loads that block once. Loading the block removes a temporary restart marker, so users must restart the shell before running the application again.
+Call `shellrcGuard(import.meta.url)` at the top of the complete application entry, before other application code. The entry must belong to a package with a stable `name`. The guard rejects unsupported shells and, after the first installation, stops later invocations until the shell loads the managed block once.
 
 The supported shell identifiers are:
 
@@ -46,17 +46,12 @@ type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 
 `powershell` selects Windows PowerShell 5.1 and is available only on Windows. `pwsh` selects PowerShell 7 or newer. PowerShell profile paths are queried from the requested executable so redirected Documents folders and host-specific paths are respected.
 
-## What to pay attention to
+## Usage notes
 
 - Ask for the user's consent before editing a profile when your product requires it. This library performs the requested installation without prompting.
-- Call `shellrcGuard(import.meta.url)` before other application code. The entry must be inside a package with a named `package.json`.
-- Omit the shell list to configure only the current shell, or provide a `Shell[]` to configure several profiles explicitly.
-- Give the downstream package a stable `name` in `package.json`. The library derives its managed markers from that name and records the guarded entry and manifest paths for stale-installation checks.
-- Supply valid code for each shell. Commands are inserted as provided, with only their line endings adapted to the profile; they are not translated or validated as shell syntax.
-- Do not include the generated marker lines in a command. Marker conflicts stop the installation without writing the profile.
+- Supply valid shell-specific code without generated marker lines. Commands are inserted as provided, with only their line endings adapted; marker conflicts stop installation without changing the profile.
 - Tell users to restart their shell or reload the profile after a changed installation. `free-shellrc` cannot modify the state of an already-running parent shell.
-- Keep Node.js available on `PATH`. If either the guarded JavaScript entry or its package manifest later disappears, the generated guard treats the package as uninstalled and uses a local cleanup helper to remove the stale block while preserving the profile bytes. Cleanup failures are ignored so they cannot prevent the rest of the profile from loading.
-- Installation stores one cleanup helper per managed profile in an opaque package-specific directory under the operating system's persistent user-state directory. The helper remains available after the package is removed and deletes itself after successful cleanup.
+- Keep Node.js on `PATH`. If the guarded entry or package manifest disappears, a local helper removes the stale block while preserving the rest of the profile. Cleanup failures do not interrupt shell startup.
 - Handle unavailable requested shells. In particular, requesting `pwsh` requires the `pwsh` executable, and requesting `powershell` requires Windows PowerShell on Windows.
 - PowerShell execution policy is outside this library's scope. A successfully updated profile may still be blocked by the user's policy.
 - WSL is a separate Linux environment. Git Bash can use the `bash` adapter when it loads `~/.bashrc`.

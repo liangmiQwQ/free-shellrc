@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import {
   appendFile,
   chmod,
@@ -16,12 +18,14 @@ import { join } from 'node:path'
 
 import { afterEach, expect, it } from 'vitest'
 
-import { installShellrc } from '../src/index.ts'
+import { installShellrc, shellrcGuard } from '../src/index.ts'
 
 const temporaryDirectories: string[] = []
+const temporaryRestartPaths: string[] = []
 const originalEnvironment = {
   HOME: process.env.HOME,
   PATH: process.env.PATH,
+  SHELL: process.env.SHELL,
   XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
   ZDOTDIR: process.env.ZDOTDIR
 }
@@ -29,6 +33,9 @@ const originalEnvironment = {
 afterEach(async () => {
   for (const directory of temporaryDirectories.splice(0)) {
     await rm(directory, { force: true, recursive: true })
+  }
+  for (const path of temporaryRestartPaths.splice(0)) {
+    await rm(path, { force: true })
   }
   restoreEnvironment()
 })
@@ -48,6 +55,33 @@ it('installs a Bash block once without changing user content', async () => {
   expect(installed).toContain("alias demo='demo shell'")
   await expect(installShellrc({ bash: "alias demo='demo shell'" }, 'demo')).resolves.toBeFalsy()
   await expect(stat(profile)).resolves.toMatchObject({ ino: installedMetadata.ino })
+})
+
+it.skipIf(platform() === 'win32')(
+  'requires one shell restart after the first installation',
+  async () => {
+    const home = await createHome()
+    const profile = join(home, '.bashrc')
+
+    await installShellrc({ bash: 'true' }, 'bash')
+
+    expect(() => {
+      prepareGuard(home)
+    }).toThrow(expect.objectContaining({ code: 'ERR_SHELL_RESTART_REQUIRED' }))
+    execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
+    expect(() => {
+      prepareGuard(home)
+    }).not.toThrow()
+  }
+)
+
+it.skipIf(platform() === 'win32')('rejects an unsupported current shell', async () => {
+  const home = await createHome()
+  process.env.SHELL = '/bin/nu'
+
+  expect(() => {
+    prepareGuard(home)
+  }).toThrow(expect.objectContaining({ code: 'ERR_UNSUPPORTED_SHELL' }))
 })
 
 it('uses an existing CRLF line ending for the managed block', async () => {
@@ -211,9 +245,26 @@ it.skipIf(platform() === 'win32')('reports Windows PowerShell as unavailable', a
 async function createHome(): Promise<string> {
   const home = await createTemporaryDirectory()
   process.env.HOME = home
+  process.env.SHELL = '/bin/bash'
   delete process.env.ZDOTDIR
   delete process.env.XDG_CONFIG_HOME
+  prepareGuard(home)
   return home
+}
+
+function prepareGuard(home: string): void {
+  const packageName = `free-shellrc-test-${createHash('sha256').update(home).digest('hex').slice(0, 12)}`
+  const packageDirectory = join(home, 'package')
+  const entryPath = join(packageDirectory, 'entry.mjs')
+  mkdirSync(packageDirectory, { recursive: true })
+  writeFileSync(join(packageDirectory, 'package.json'), JSON.stringify({ name: packageName }))
+  writeFileSync(entryPath, '')
+  const identity = createHash('sha256').update(packageName).digest('hex').slice(0, 24)
+  const restartPath = join(tmpdir(), `.free-shellrc-${identity}.restart`)
+  if (!temporaryRestartPaths.includes(restartPath)) {
+    temporaryRestartPaths.push(restartPath)
+  }
+  shellrcGuard(entryPath)
 }
 
 async function createTemporaryDirectory(): Promise<string> {

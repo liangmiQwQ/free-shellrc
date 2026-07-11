@@ -8,6 +8,7 @@ export function createManagedBlock(
   command: string,
   productName: string,
   profilePath: string,
+  restartPath: string,
   markers: Markers,
   lineEnding: string
 ): string {
@@ -15,10 +16,31 @@ export function createManagedBlock(
   const cleanupScript = CLEANUP_SCRIPT.replaceAll(/\r\n|\n|\r/g, ';')
   const lines =
     shell === 'fish'
-      ? createFishLines(normalizedCommand, productName, profilePath, markers, cleanupScript)
+      ? createFishLines(
+          normalizedCommand,
+          productName,
+          profilePath,
+          restartPath,
+          markers,
+          cleanupScript
+        )
       : shell === 'powershell' || shell === 'pwsh'
-        ? createPowerShellLines(normalizedCommand, productName, profilePath, markers, cleanupScript)
-        : createPosixLines(normalizedCommand, productName, profilePath, markers, cleanupScript)
+        ? createPowerShellLines(
+            normalizedCommand,
+            productName,
+            profilePath,
+            restartPath,
+            markers,
+            cleanupScript
+          )
+        : createPosixLines(
+            normalizedCommand,
+            productName,
+            profilePath,
+            restartPath,
+            markers,
+            cleanupScript
+          )
 
   return [markers.start, ...lines, markers.end, ''].join(lineEnding)
 }
@@ -27,11 +49,13 @@ function createPosixLines(
   command: string,
   productName: string,
   profilePath: string,
+  restartPath: string,
   markers: Markers,
   cleanupScript: string
 ): string[] {
   return [
     `if command -v -- ${quotePosix(productName)} >/dev/null 2>&1; then`,
+    `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
     command,
     'else',
     `  command node -e ${quotePosix(cleanupScript)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1 || true`,
@@ -43,11 +67,13 @@ function createFishLines(
   command: string,
   productName: string,
   profilePath: string,
+  restartPath: string,
   markers: Markers,
   cleanupScript: string
 ): string[] {
   return [
     `if command --query ${quotePosix(productName)}`,
+    `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
     command,
     'else',
     `  command node -e ${quotePosix(cleanupScript)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1; or true`,
@@ -59,11 +85,13 @@ function createPowerShellLines(
   command: string,
   productName: string,
   profilePath: string,
+  restartPath: string,
   markers: Markers,
   cleanupScript: string
 ): string[] {
   return [
     `if (Get-Command -Name ${quotePowerShell(productName)} -ErrorAction SilentlyContinue) {`,
+    `  Remove-Item -LiteralPath ${quotePowerShell(restartPath)} -Force -ErrorAction SilentlyContinue`,
     command,
     '} else {',
     '  try {',

@@ -15,7 +15,6 @@ The library targets CLI authors who need to install shell functions, aliases, co
 
 ## Non-goals
 
-- Detecting the parent shell automatically.
 - Generating application-specific functions, aliases, completions, or command wrappers.
 - Allowing a child process to change its parent shell state.
 - Managing PowerShell execution policy.
@@ -38,14 +37,18 @@ Bash and Zsh share a shell language in many cases, but they remain separate iden
 
 ## Public API
 
-The initial public API contains one function:
+The public API contains a guard and an installation function:
 
 ```ts
+export function shellrcGuard(entry: string | URL): void
+
 export function installShellrc<RequestedShell extends Shell>(
   shellCommand: Record<RequestedShell, string>,
   productName: string
 ): Promise<boolean>
 ```
+
+The downstream application must call `shellrcGuard(import.meta.url)` at the top of its complete entry, before other application logic. The guard locates the nearest named `package.json`, rejects terminals whose current shell is unsupported, and rejects application invocations while a first-install restart marker exists.
 
 `shellCommand` contains the caller-provided command for each requested shell. The library resolves the corresponding current-user profiles and installs each command in the managed block for that shell. Commands are shell-specific and are not translated between shell languages.
 
@@ -87,6 +90,8 @@ Every product has a stable name matching `[A-Za-z0-9._-]+`. The library uses com
 Markers occupy complete lines and are matched exactly. They are derived from `productName`; callers cannot override them.
 
 An installed block contains the opening marker, a shell-specific product-availability guard, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
+
+The first time a product block is added, installation creates a package-specific file in the operating system's temporary directory. A supported shell removes that file when it loads the new block and confirms the product is available. Until then, `shellrcGuard` reports `ERR_SHELL_RESTART_REQUIRED`. This makes the required restart enforceable instead of relying only on caller messaging. Updating or repairing an existing block does not recreate the restart marker.
 
 When a shell loads the block, it first checks whether `productName` is available as a command. If it is available, the block executes only the caller-provided command. If it is unavailable, the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
 
@@ -157,6 +162,8 @@ Callers are responsible for:
 
 `free-shellrc` does not execute the installed command during installation. The user's shell executes it when loading the managed block and the product is still available.
 
+The application must place `shellrcGuard(import.meta.url)` before other entry logic so an unsupported shell or pending restart stops the complete application consistently.
+
 ## Verification
 
 Pure transformation tests cover:
@@ -168,6 +175,7 @@ Pure transformation tests cover:
 - Preservation of all bytes outside the managed region.
 - Every supported encoding and byte-order mark.
 - Product-present and product-missing branches of each shell-specific managed block.
+- Unsupported current shells and the create, reject, and shell-load removal lifecycle of the first-install restart marker.
 
 Filesystem tests use temporary directories and cover missing parents, unchanged writes, permissions, symbolic links, and concurrent-change detection. Tests must never target a developer's actual shell profile.
 

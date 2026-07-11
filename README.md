@@ -15,7 +15,9 @@ vp install free-shellrc
 Pass the shell-specific commands to install and the name of your executable:
 
 ```ts
-import { installShellrc } from 'free-shellrc'
+import { installShellrc, shellrcGuard } from 'free-shellrc'
+
+shellrcGuard(import.meta.url)
 
 const changed = await installShellrc(
   {
@@ -34,6 +36,8 @@ if (changed) {
 
 Only include shells your application supports. The promise resolves to `true` if at least one profile changed and `false` if every requested profile already contained the same managed block.
 
+Call `shellrcGuard(import.meta.url)` at the top of the complete application entry, before other application code. The guard rejects unsupported shells. After the first managed block is installed, it also stops later invocations until the shell loads that block once. Loading the block removes a temporary restart marker, so users must restart the shell before running the application again.
+
 The supported shell identifiers are:
 
 ```ts
@@ -45,7 +49,8 @@ type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 ## What to pay attention to
 
 - Ask for the user's consent before editing a profile when your product requires it. This library performs the requested installation without prompting.
-- Choose the target shells explicitly. The library does not detect the parent or currently active shell.
+- Call `shellrcGuard(import.meta.url)` before other application code. The entry must be inside a package with a named `package.json`.
+- Choose the target shells explicitly. The guard detects the current shell only to reject unsupported terminals; installation still uses the shells supplied by the caller.
 - Use the real executable name as `productName`. It must match `[A-Za-z0-9._-]+` and must be discoverable on `PATH` when the profile loads.
 - Supply valid code for each shell. Commands are inserted as provided, with only their line endings adapted to the profile; they are not translated or validated as shell syntax.
 - Do not include the generated marker lines in a command. Marker conflicts stop the installation without writing the profile.
@@ -63,14 +68,21 @@ Expected conflicts are normal `Error` objects with a stable `code` property. The
 | ------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `ERR_INVALID_PRODUCT_NAME`      | `productName` does not match the required pattern.                                             |
 | `ERR_INVALID_MARKERS`           | A profile or caller command contains incomplete, reversed, nested, or conflicting markers.     |
+| `ERR_PACKAGE_NOT_FOUND`         | The guarded entry has no ancestor `package.json` with a package name.                          |
+| `ERR_SHELL_RESTART_REQUIRED`    | The first installation has not yet been loaded by a restarted shell.                           |
+| `ERR_SHELLRC_GUARD_REQUIRED`    | `installShellrc` was called before `shellrcGuard`.                                             |
 | `ERR_UNSUPPORTED_ENCODING`      | An existing profile is not supported UTF-8, UTF-16 LE, or UTF-16 BE.                           |
 | `ERR_UNAVAILABLE_SHELL`         | The requested shell executable or profile path is unavailable.                                 |
+| `ERR_UNSUPPORTED_SHELL`         | The current terminal is using a shell that the library does not support.                       |
 | `ERR_CONCURRENT_PROFILE_CHANGE` | The profile changed between reading and replacement, so the newer content was not overwritten. |
 
 Filesystem and permission failures retain their original error and cause where applicable.
 
 ```ts
+import { shellrcGuard } from 'free-shellrc'
 import type { ShellrcErrorCode } from 'free-shellrc'
+
+shellrcGuard(import.meta.url)
 
 try {
   await installShellrc({ bash: 'acme shell-init bash' }, 'acme')

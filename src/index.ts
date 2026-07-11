@@ -1,6 +1,9 @@
+import { writeFile } from 'node:fs/promises'
+
 import { decodeProfile, encodeProfile } from './encoding.ts'
 import { createShellrcError } from './errors.ts'
 import { readProfile, writeProfile } from './file.ts'
+import { requireShellrcContext } from './guard.ts'
 import { resolveProfile } from './profiles.ts'
 import { createManagedBlock } from './shells.ts'
 import type { Shell } from './shells.ts'
@@ -13,12 +16,14 @@ import {
 
 export type { Shell } from './shells.ts'
 export type { ShellrcErrorCode } from './errors.ts'
+export { shellrcGuard } from './guard.ts'
 
 export async function installShellrc<RequestedShell extends Shell>(
   shellCommand: Record<RequestedShell, string>,
   productName: string
 ): Promise<boolean> {
   validateProductName(productName)
+  const context = requireShellrcContext()
 
   let changed = false
   for (const [shell, command] of Object.entries(shellCommand) as [RequestedShell, string][]) {
@@ -28,7 +33,16 @@ export async function installShellrc<RequestedShell extends Shell>(
     const markers = createMarkers(productName)
     assertCommandDoesNotContainMarkers(command, markers)
     const lineEnding = detectLineEnding(decoded.text)
-    const block = createManagedBlock(shell, command, productName, profilePath, markers, lineEnding)
+    const firstInstall = !decoded.text.split(/\r\n|\n|\r/).includes(markers.start)
+    const block = createManagedBlock(
+      shell,
+      command,
+      productName,
+      profilePath,
+      context.restartPath,
+      markers,
+      lineEnding
+    )
     const updated = transformProfile(decoded.text, markers, block)
     const encoding =
       profile.mode === undefined && shell === 'powershell' ? 'utf8-bom' : decoded.encoding
@@ -38,9 +52,22 @@ export async function installShellrc<RequestedShell extends Shell>(
       continue
     }
     await writeProfile(profile, bytes)
+    if (firstInstall) {
+      await createRestartMarker(context.restartPath)
+    }
     changed = true
   }
   return changed
+}
+
+async function createRestartMarker(path: string): Promise<void> {
+  try {
+    await writeFile(path, '', { flag: 'wx' })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw error
+    }
+  }
 }
 
 function validateProductName(productName: string): void {

@@ -16,6 +16,7 @@ import {
 } from 'node:fs/promises'
 import { EOL, platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import { afterEach, expect, it } from 'vitest'
 
@@ -127,6 +128,26 @@ it.skipIf(platform() === 'win32')('rejects an unsupported current shell', async 
   expect(() => {
     prepareGuard(home)
   }).toThrow(expect.objectContaining({ code: 'ERR_UNSUPPORTED_SHELL' }))
+})
+
+it('accepts import.meta.url as the application entry', async () => {
+  const home = await createTemporaryDirectory()
+  const packageDirectory = join(home, 'package#encoded')
+  const entryPath = join(packageDirectory, 'entry.mjs')
+  await mkdir(packageDirectory)
+  await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({ name: 'demo-url' }))
+  await writeFile(entryPath, '')
+  process.env.SHELL = '/bin/bash'
+  const originalWorkingDirectory = process.cwd()
+
+  try {
+    process.chdir(home)
+    expect(() => {
+      shellrcGuard(pathToFileURL(entryPath).href)
+    }).not.toThrow()
+  } finally {
+    process.chdir(originalWorkingDirectory)
+  }
 })
 
 it('installs only the current shell when no shell list is provided', async () => {

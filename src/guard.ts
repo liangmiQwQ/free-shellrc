@@ -105,7 +105,7 @@ function shellFromExecutable(executable: string | undefined): Shell | undefined 
 }
 
 function resolveEntryPath(entry: string | URL): string {
-  return resolve(entry instanceof URL ? fileURLToPath(entry) : entry)
+  return resolve(entry instanceof URL || entry.startsWith('file:') ? fileURLToPath(entry) : entry)
 }
 
 function findPackageMetadata(entryPath: string): { name: string; path: string } {

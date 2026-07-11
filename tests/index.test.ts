@@ -204,27 +204,31 @@ it.skipIf(platform() === 'win32')('keeps a profile symlink and target permission
   await expect(readFile(target, 'utf8')).resolves.toContain('demo init')
 })
 
-it.skipIf(platform() === 'win32')(
-  'runs the command while the product exists and self-removes after it disappears',
-  async () => {
+it.skipIf(platform() === 'win32').each(['entry', 'package'] as const)(
+  'runs while installed and self-removes when the %s file disappears',
+  async missingFile => {
     const home = await createHome()
     const profile = join(home, '.bashrc')
     const output = join(home, 'loaded')
     const original = 'export KEEP=1'
     await writeFile(profile, original)
 
-    prepareGuard(home, 'bash')
+    prepareGuard(home)
     await installShellrc(() => `printf loaded > ${quotePosix(output)}`, ['bash'])
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
     await expect(readFile(output, 'utf8')).resolves.toBe('loaded')
 
-    await writeFile(profile, original)
-    prepareGuard(home, 'missing-demo')
-    await installShellrc(() => `printf should-not-run > ${quotePosix(output)}`, ['bash'])
+    await rm(output)
+    const missingPath = join(
+      home,
+      'package',
+      missingFile === 'entry' ? 'entry.mjs' : 'package.json'
+    )
+    await rm(missingPath)
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
 
     await expect(readFile(profile, 'utf8')).resolves.toBe(original)
-    await expect(readFile(output, 'utf8')).resolves.toBe('loaded')
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' })
   }
 )
 

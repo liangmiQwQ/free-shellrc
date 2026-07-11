@@ -6,7 +6,8 @@ export type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 export function createManagedBlock(
   shell: Shell,
   command: string,
-  packageName: string,
+  entryPath: string,
+  packagePath: string,
   profilePath: string,
   restartPath: string,
   markers: Markers,
@@ -18,7 +19,8 @@ export function createManagedBlock(
     shell === 'fish'
       ? createFishLines(
           normalizedCommand,
-          packageName,
+          entryPath,
+          packagePath,
           profilePath,
           restartPath,
           markers,
@@ -27,7 +29,8 @@ export function createManagedBlock(
       : shell === 'powershell' || shell === 'pwsh'
         ? createPowerShellLines(
             normalizedCommand,
-            packageName,
+            entryPath,
+            packagePath,
             profilePath,
             restartPath,
             markers,
@@ -35,7 +38,8 @@ export function createManagedBlock(
           )
         : createPosixLines(
             normalizedCommand,
-            packageName,
+            entryPath,
+            packagePath,
             profilePath,
             restartPath,
             markers,
@@ -47,14 +51,15 @@ export function createManagedBlock(
 
 function createPosixLines(
   command: string,
-  packageName: string,
+  entryPath: string,
+  packagePath: string,
   profilePath: string,
   restartPath: string,
   markers: Markers,
   cleanupScript: string
 ): string[] {
   return [
-    `if command -v -- ${quotePosix(packageName)} >/dev/null 2>&1; then`,
+    `if [ -f ${quotePosix(entryPath)} ] && [ -f ${quotePosix(packagePath)} ]; then`,
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
     command,
     'else',
@@ -65,14 +70,15 @@ function createPosixLines(
 
 function createFishLines(
   command: string,
-  packageName: string,
+  entryPath: string,
+  packagePath: string,
   profilePath: string,
   restartPath: string,
   markers: Markers,
   cleanupScript: string
 ): string[] {
   return [
-    `if command --query ${quotePosix(packageName)}`,
+    `if test -f ${quotePosix(entryPath)}; and test -f ${quotePosix(packagePath)}`,
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
     command,
     'else',
@@ -83,14 +89,15 @@ function createFishLines(
 
 function createPowerShellLines(
   command: string,
-  packageName: string,
+  entryPath: string,
+  packagePath: string,
   profilePath: string,
   restartPath: string,
   markers: Markers,
   cleanupScript: string
 ): string[] {
   return [
-    `if (Get-Command -Name ${quotePowerShell(packageName)} -ErrorAction SilentlyContinue) {`,
+    `if ((Test-Path -LiteralPath ${quotePowerShell(entryPath)} -PathType Leaf) -and (Test-Path -LiteralPath ${quotePowerShell(packagePath)} -PathType Leaf)) {`,
     `  Remove-Item -LiteralPath ${quotePowerShell(restartPath)} -Force -ErrorAction SilentlyContinue`,
     command,
     '} else {',

@@ -51,11 +51,11 @@ type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 - Ask for the user's consent before editing a profile when your product requires it. This library performs the requested installation without prompting.
 - Call `shellrcGuard(import.meta.url)` before other application code. The entry must be inside a package with a named `package.json`.
 - Omit the shell list to configure only the current shell, or provide a `Shell[]` to configure several profiles explicitly.
-- Give the downstream package a stable `name` in `package.json`. The library derives its managed markers and stale-installation identity from that name.
+- Give the downstream package a stable `name` in `package.json`. The library derives its managed markers from that name and records the guarded entry and manifest paths for stale-installation checks.
 - Supply valid code for each shell. Commands are inserted as provided, with only their line endings adapted to the profile; they are not translated or validated as shell syntax.
 - Do not include the generated marker lines in a command. Marker conflicts stop the installation without writing the profile.
 - Tell users to restart their shell or reload the profile after a changed installation. `free-shellrc` cannot modify the state of an already-running parent shell.
-- Keep Node.js available on `PATH`. If the product executable later disappears, the generated guard uses Node.js to remove the stale block while preserving the profile bytes. Cleanup failures are ignored so they cannot prevent the rest of the profile from loading.
+- Keep Node.js available on `PATH`. If either the guarded JavaScript entry or its package manifest later disappears, the generated guard treats the package as uninstalled and uses Node.js to remove the stale block while preserving the profile bytes. Cleanup failures are ignored so they cannot prevent the rest of the profile from loading.
 - Handle unavailable requested shells. In particular, requesting `pwsh` requires the `pwsh` executable, and requesting `powershell` requires Windows PowerShell on Windows.
 - PowerShell execution policy is outside this library's scope. A successfully updated profile may still be blocked by the user's policy.
 - WSL is a separate Linux environment. Git Bash can use the `bash` adapter when it loads `~/.bashrc`.

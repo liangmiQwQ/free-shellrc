@@ -37,7 +37,8 @@ export async function installShellrc(
     const block = createManagedBlock(
       shellType,
       command,
-      context.packageName,
+      context.entryPath,
+      context.packagePath,
       profilePath,
       context.restartPath,
       markers,

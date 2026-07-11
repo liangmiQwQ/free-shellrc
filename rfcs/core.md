@@ -54,7 +54,7 @@ The downstream application must call `shellrcGuard(import.meta.url)` at the top 
 
 When `shell` is omitted, installation targets the current shell detected by `shellrcGuard`. When it is provided, installation targets each listed shell in order. The library resolves the corresponding current-user profiles and invokes `commands` once for each selected shell.
 
-The package name discovered by `shellrcGuard` identifies the owning product and is used in the managed block's comment markers and stale-installation check. Callers cannot supply a separate product identity.
+The package name discovered by `shellrcGuard` identifies the owning product and is used in the managed block's comment markers. The guarded JavaScript entry and discovered package manifest identify whether the package remains installed. Callers cannot supply a separate product identity.
 
 The promise resolves to `true` when at least one profile changes and `false` when every profile already contains the requested block. Installing the same commands twice therefore returns `false` and does not write any file.
 
@@ -91,11 +91,11 @@ Every downstream package has a stable package name. The library uses comments to
 
 Markers occupy complete lines and are matched exactly. They are derived from the downstream package name; callers cannot override them.
 
-An installed block contains the opening marker, a shell-specific product-availability guard, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
+An installed block contains the opening marker, a shell-specific package-installation guard, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
 
 The first time a product block is added, installation creates a package-specific file in the operating system's temporary directory. A supported shell removes that file when it loads the new block and confirms the product is available. Until then, `shellrcGuard` reports `ERR_SHELL_RESTART_REQUIRED`. This makes the required restart enforceable instead of relying only on caller messaging. Updating or repairing an existing block does not recreate the restart marker.
 
-When a shell loads the block, it first checks whether the package name is available as a command. If it is available, the block executes only the caller-provided command. If it is unavailable, the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
+When a shell loads the block, it first checks that both the JavaScript entry passed to `shellrcGuard` and the discovered package manifest still exist as files. If both exist, the block executes only the caller-provided command. If either is missing, the package is considered uninstalled: the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
 
 The availability guard and cleanup routine are library-generated implementation details for Bash, Zsh, Fish, Windows PowerShell, and PowerShell 7. They must not rewrite or reinterpret the caller-provided command. A cleanup failure must not prevent the rest of the user's profile from loading.
 
@@ -176,7 +176,7 @@ Pure transformation tests cover:
 - Product-derived and malformed markers.
 - Preservation of all bytes outside the managed region.
 - Every supported encoding and byte-order mark.
-- Product-present and product-missing branches of each shell-specific managed block.
+- Package-present, entry-missing, and manifest-missing branches of each shell-specific managed block.
 - Unsupported current shells and the create, reject, and shell-load removal lifecycle of the first-install restart marker.
 
 Filesystem tests use temporary directories and cover missing parents, unchanged writes, permissions, symbolic links, and concurrent-change detection. Tests must never target a developer's actual shell profile.

@@ -16,8 +16,6 @@ Run `vp check` and `vp test` after making changes.
 
 Keep AGENTS.md synchronized with durable project behavior and constraints. Do not store project status or temporary implementation details in it.
 
-Never use emoji anywhere in the project.
-
 Keep code functional. Never use classes. Prefer small reusable functions with one responsibility.
 
 Treat shell profile files as user-owned data. Preserve content outside the managed region, and use temporary directories in tests instead of modifying real user profiles.

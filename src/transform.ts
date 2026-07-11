@@ -16,13 +16,15 @@ interface ManagedBlock {
 
 export interface Markers {
   end: string
+  packageName: string
   start: string
 }
 
 export function createMarkers(packageName: string): Markers {
   return {
     start: `# >>> _${packageName}_START >>>`,
-    end: `# <<< _${packageName}_END <<<`
+    end: `# <<< _${packageName}_END <<<`,
+    packageName
   }
 }
 

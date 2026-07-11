@@ -56,6 +56,7 @@ type Shell = 'bash' | 'zsh' | 'fish' | 'powershell' | 'pwsh'
 - Do not include the generated marker lines in a command. Marker conflicts stop the installation without writing the profile.
 - Tell users to restart their shell or reload the profile after a changed installation. `free-shellrc` cannot modify the state of an already-running parent shell.
 - Keep Node.js available on `PATH`. If either the guarded JavaScript entry or its package manifest later disappears, the generated guard treats the package as uninstalled and uses Node.js to remove the stale block while preserving the profile bytes. Cleanup failures are ignored so they cannot prevent the rest of the profile from loading.
+- The cleanup program is maintained as a standalone JavaScript file and embedded into the library bundle and generated managed block. Shell startup does not depend on that source file remaining installed.
 - Handle unavailable requested shells. In particular, requesting `pwsh` requires the `pwsh` executable, and requesting `powershell` requires Windows PowerShell on Windows.
 - PowerShell execution policy is outside this library's scope. A successfully updated profile may still be blocked by the user's policy.
 - WSL is a separate Linux environment. Git Bash can use the `bash` adapter when it loads `~/.bashrc`.

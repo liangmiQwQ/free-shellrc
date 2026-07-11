@@ -105,3 +105,7 @@ try {
 | PowerShell 7+      | `$PROFILE.CurrentUserAllHosts`, queried from `pwsh`           |
 
 Existing UTF-8, UTF-8 BOM, UTF-16 LE BOM, and UTF-16 BE BOM profiles retain their encoding. New Windows PowerShell 5.1 profiles use UTF-8 with a BOM; other new profiles use UTF-8 without a BOM.
+
+## License
+
+[MIT](./LICENSE) © Liang Mi

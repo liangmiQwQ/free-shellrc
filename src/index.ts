@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 
+import { installCleanupScript } from './cleanup.ts'
 import { decodeProfile, encodeProfile } from './encoding.ts'
 import { readProfile, writeProfile } from './file.ts'
 import { requireShellrcContext } from './guard.ts'
@@ -34,6 +35,7 @@ export async function installShellrc(
     assertCommandDoesNotContainMarkers(command, markers)
     const lineEnding = detectLineEnding(decoded.text)
     const firstInstall = !decoded.text.split(/\r\n|\n|\r/).includes(markers.start)
+    const cleanupPath = await installCleanupScript(context.packageName, shellType, profilePath)
     const block = createManagedBlock(
       shellType,
       command,
@@ -41,6 +43,7 @@ export async function installShellrc(
       context.packagePath,
       profilePath,
       context.restartPath,
+      cleanupPath,
       markers,
       lineEnding
     )

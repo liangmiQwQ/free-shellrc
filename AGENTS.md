@@ -18,6 +18,8 @@ Keep AGENTS.md synchronized with durable project behavior and constraints. Do no
 
 Keep code functional. Never use classes. Prefer small reusable functions with one responsibility.
 
+Return expected guard conditions as plain diagnostics. Throw unexpected failures.
+
 Treat shell profile files as user-owned data. Preserve content outside the managed region, and use temporary directories in tests instead of modifying real user profiles.
 
 Keep generated profile code readable. Do not encode executable cleanup payloads.

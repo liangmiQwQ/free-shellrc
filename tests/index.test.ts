@@ -111,7 +111,9 @@ it.skipIf(platform() === 'win32')(
     prepareGuard(home, 'bash')
     await installShellrc(() => 'true', ['bash'])
 
-    expect(prepareGuard(home, 'bash')).toMatchObject({ code: 'ERR_SHELL_RESTART_REQUIRED' })
+    const diagnostic = prepareGuard(home, 'bash')
+    expect(diagnostic).toMatchObject({ code: 'SHELL_RESTART_REQUIRED' })
+    expect(diagnostic).not.toBeInstanceOf(Error)
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
     expect(prepareGuard(home, 'bash')).toBeUndefined()
   }
@@ -121,7 +123,7 @@ it.skipIf(platform() === 'win32')('rejects an unsupported current shell', async 
   const home = await createHome()
   process.env.SHELL = '/bin/nu'
 
-  expect(prepareGuard(home)).toMatchObject({ code: 'ERR_UNSUPPORTED_SHELL' })
+  expect(prepareGuard(home)).toMatchObject({ code: 'UNSUPPORTED_SHELL' })
 })
 
 it('accepts import.meta.url as the application entry', async () => {
@@ -349,9 +351,9 @@ async function createHome(): Promise<string> {
   process.env.XDG_STATE_HOME = join(home, 'state')
   delete process.env.ZDOTDIR
   delete process.env.XDG_CONFIG_HOME
-  const error = prepareGuard(home)
-  if (error) {
-    throw error
+  const diagnostic = prepareGuard(home)
+  if (diagnostic) {
+    throw new Error(diagnostic.message)
   }
   return home
 }

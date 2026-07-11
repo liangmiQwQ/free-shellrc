@@ -7,7 +7,7 @@ Safely install product-owned shell integration in the current user's Bash, Zsh, 
 ## Why free-shellrc
 
 - **Self-cleaning after uninstall.** Each managed block checks whether its owning package still exists. If the package has been removed, the block skips the product command and removes itself from that profile. The cleanup helper then removes itself too.
-- **Enforced first restart.** A first-time installation creates a restart marker. `shellrcGuard` returns `ERR_SHELL_RESTART_REQUIRED` on later application invocations until a new shell loads the managed block. Explicitly reloading the profile also satisfies this requirement.
+- **Enforced first restart.** A first-time installation creates a restart marker. `shellrcGuard` returns `SHELL_RESTART_REQUIRED` on later application invocations until a new shell loads the managed block. Explicitly reloading the profile also satisfies this requirement.
 - **User-owned content stays user-owned.** Installation changes only the marked region and preserves content outside it byte for byte, along with the existing encoding, line endings, permissions, and symbolic link.
 - **Safe to repeat and update.** Reinstalling identical commands does not rewrite the profile. Changed commands replace the existing block in place, and malformed or concurrently changed profiles are not overwritten.
 
@@ -27,9 +27,9 @@ Pass a shell-specific command factory. By default, the library installs only for
 import { installShellrc, shellrcGuard } from 'free-shellrc'
 
 async function main() {
-  const guardError = shellrcGuard(import.meta.url)
-  if (guardError) {
-    console.error(guardError.message)
+  const diagnostic = shellrcGuard(import.meta.url)
+  if (diagnostic) {
+    console.error(diagnostic.message)
     process.exitCode = 1
     return
   }
@@ -86,24 +86,29 @@ WSL is a separate Linux environment: install the integration from inside each WS
 
 If the guarded entry or package manifest disappears, the local cleanup helper removes the stale block while preserving the rest of the profile.
 
-## Errors
+## Diagnostics and errors
 
-`shellrcGuard` returns a `ShellrcError` when an expected guard condition should stop startup and `undefined` when it may continue. Unexpected input, package manifest, and filesystem failures still throw. Installation errors reject the `installShellrc` promise because they represent a failed profile operation.
+`shellrcGuard` returns a plain diagnostic when an expected guard condition should stop startup and `undefined` when it may continue. Diagnostics are data, not `Error` objects:
+
+| Code                     | Meaning                                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `PACKAGE_NOT_FOUND`      | The guarded entry has no ancestor `package.json` with a package name.                    |
+| `SHELL_RESTART_REQUIRED` | The first installation has not yet been loaded by a restarted shell or reloaded profile. |
+| `UNSUPPORTED_SHELL`      | The current terminal is using a shell that the library does not support.                 |
+
+Unexpected input, package manifest, and filesystem failures still throw. Installation errors reject the `installShellrc` promise because they represent a failed profile operation.
 
 Errors created by `free-shellrc` have a stable `code` property. The exported `ShellrcErrorCode` type contains:
 
 | Code                            | Meaning                                                                                        |
 | ------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `ERR_INVALID_MARKERS`           | A profile or caller command contains incomplete, reversed, nested, or conflicting markers.     |
-| `ERR_PACKAGE_NOT_FOUND`         | The guarded entry has no ancestor `package.json` with a package name.                          |
-| `ERR_SHELL_RESTART_REQUIRED`    | The first installation has not yet been loaded by a restarted shell or reloaded profile.       |
 | `ERR_SHELLRC_GUARD_REQUIRED`    | `installShellrc` was called before `shellrcGuard`.                                             |
 | `ERR_UNSUPPORTED_ENCODING`      | An existing profile is not supported UTF-8, UTF-16 LE, or UTF-16 BE.                           |
 | `ERR_UNAVAILABLE_SHELL`         | The requested shell executable or profile path is unavailable.                                 |
-| `ERR_UNSUPPORTED_SHELL`         | The current terminal is using a shell that the library does not support.                       |
 | `ERR_CONCURRENT_PROFILE_CHANGE` | The profile changed between reading and replacement, so the newer content was not overwritten. |
 
-Filesystem and permission failures retain their original error and cause where applicable. Use the guard error's `code` when a message or exit path needs to differ by reason; the main example handles every guard error before continuing.
+Filesystem and permission failures retain their original error and cause where applicable. Use the guard diagnostic's `code` when a message or exit path needs to differ by reason; the main example handles every diagnostic before continuing.
 
 ## Profile locations
 

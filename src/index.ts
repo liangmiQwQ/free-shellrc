@@ -16,6 +16,7 @@ import {
 
 export type { Shell } from './shells.ts'
 export type { ShellrcError, ShellrcErrorCode } from './errors.ts'
+export type { ShellrcGuardDiagnostic, ShellrcGuardDiagnosticCode } from './guard.ts'
 export { shellrcGuard } from './guard.ts'
 
 export async function installShellrc(

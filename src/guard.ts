@@ -6,8 +6,17 @@ import { basename, dirname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { createShellrcError } from './errors.ts'
-import type { ShellrcError } from './errors.ts'
 import type { Shell } from './shells.ts'
+
+export type ShellrcGuardDiagnosticCode =
+  | 'PACKAGE_NOT_FOUND'
+  | 'SHELL_RESTART_REQUIRED'
+  | 'UNSUPPORTED_SHELL'
+
+export interface ShellrcGuardDiagnostic {
+  code: ShellrcGuardDiagnosticCode
+  message: string
+}
 
 export interface ShellrcContext {
   entryPath: string
@@ -19,28 +28,29 @@ export interface ShellrcContext {
 
 let activeContext: ShellrcContext | undefined
 
-/** The returned value must be checked before other application logic runs. */
-export function shellrcGuard(entry: string | URL): ShellrcError | undefined {
+/** The returned diagnostic must be handled before other application logic runs. */
+export function shellrcGuard(entry: string | URL): ShellrcGuardDiagnostic | undefined {
   activeContext = undefined
   const entryPath = resolveEntryPath(entry)
   const packageMetadata = findPackageMetadata(entryPath)
-  if (packageMetadata instanceof Error) {
+  if ('code' in packageMetadata) {
     return packageMetadata
   }
   const shell = detectCurrentShell()
   if (!shell) {
-    return createShellrcError(
-      'ERR_UNSUPPORTED_SHELL',
-      'The current terminal is not using Bash, Zsh, Fish, Windows PowerShell, or PowerShell 7.'
-    )
+    return {
+      code: 'UNSUPPORTED_SHELL',
+      message:
+        'The current terminal is not using Bash, Zsh, Fish, Windows PowerShell, or PowerShell 7.'
+    }
   }
 
   const restartPath = createRestartPath(packageMetadata.name)
   if (existsSync(restartPath)) {
-    return createShellrcError(
-      'ERR_SHELL_RESTART_REQUIRED',
-      'Restart the current shell before running this command again.'
-    )
+    return {
+      code: 'SHELL_RESTART_REQUIRED',
+      message: 'Restart the current shell before running this command again.'
+    }
   }
   activeContext = {
     entryPath,
@@ -114,7 +124,9 @@ function resolveEntryPath(entry: string | URL): string {
   return resolve(entry instanceof URL || entry.startsWith('file:') ? fileURLToPath(entry) : entry)
 }
 
-function findPackageMetadata(entryPath: string): { name: string; path: string } | ShellrcError {
+function findPackageMetadata(
+  entryPath: string
+): { name: string; path: string } | ShellrcGuardDiagnostic {
   const entryDirectory = dirname(entryPath)
   const { root } = parse(entryDirectory)
 
@@ -133,9 +145,9 @@ function findPackageMetadata(entryPath: string): { name: string; path: string } 
   }
 }
 
-function packageNotFound(entryPath: string): ShellrcError {
-  return createShellrcError(
-    'ERR_PACKAGE_NOT_FOUND',
-    `Could not find a package.json with a name for the application entry: ${entryPath}`
-  )
+function packageNotFound(entryPath: string): ShellrcGuardDiagnostic {
+  return {
+    code: 'PACKAGE_NOT_FOUND',
+    message: `Could not find a package.json with a name for the application entry: ${entryPath}`
+  }
 }

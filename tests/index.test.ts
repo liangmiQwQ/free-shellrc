@@ -259,6 +259,9 @@ it.skipIf(platform() === 'win32').each(['entry', 'package'] as const)(
 
     prepareGuard(home)
     await installShellrc(() => `printf loaded > ${quotePosix(output)}`, ['bash'])
+    const stateRoot = stateRootForTest(home)
+    const [cleanupDirectoryName] = await readdir(stateRoot)
+    const cleanupDirectory = join(stateRoot, cleanupDirectoryName)
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
     await expect(readFile(output, 'utf8')).resolves.toBe('loaded')
 
@@ -273,7 +276,7 @@ it.skipIf(platform() === 'win32').each(['entry', 'package'] as const)(
 
     await expect(readFile(profile, 'utf8')).resolves.toBe(original)
     await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' })
-    await expect(readFile(cleanupDirectoryForTest(home))).rejects.toMatchObject({
+    await expect(readFile(cleanupDirectory)).rejects.toMatchObject({
       code: 'ENOENT'
     })
   }
@@ -283,7 +286,9 @@ it('restores a missing cleanup helper without changing the profile', async () =>
   const home = await createHome()
 
   await installShellrc(() => 'demo init', ['bash'])
-  const cleanupDirectory = cleanupDirectoryForTest(home)
+  const [cleanupDirectoryName] = await readdir(stateRootForTest(home))
+  expect(cleanupDirectoryName).not.toMatch(/demo|free-shellrc/)
+  const cleanupDirectory = join(stateRootForTest(home), cleanupDirectoryName)
   const [cleanupFile] = await readdir(cleanupDirectory)
   const cleanupPath = join(cleanupDirectory, cleanupFile)
   await rm(cleanupPath)
@@ -346,10 +351,10 @@ async function createTemporaryDirectory(): Promise<string> {
   return directory
 }
 
-function cleanupDirectoryForTest(home: string): string {
-  const stateRoot =
-    platform() === 'darwin' ? join(home, 'Library', 'Application Support') : join(home, 'state')
-  return join(stateRoot, 'demo-shellrc')
+function stateRootForTest(home: string): string {
+  return platform() === 'darwin'
+    ? join(home, 'Library', 'Application Support')
+    : join(home, 'state')
 }
 
 function restoreEnvironment(): void {

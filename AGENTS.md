@@ -22,7 +22,7 @@ Treat shell profile files as user-owned data. Preserve content outside the manag
 
 Keep generated profile code readable. Do not encode executable cleanup payloads.
 
-Store cleanup helpers under the downstream package name, keep them profile-specific, and remove them after successful cleanup.
+Store cleanup helpers in opaque package-specific directories, keep them profile-specific, and remove them after successful cleanup.
 
 Keep the library focused on shell profile integration. Do not add CLI prompts, application-specific aliases, or unrelated process-management features.
 

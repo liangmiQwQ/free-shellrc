@@ -11,7 +11,8 @@ export async function installCleanupScript(
   shell: Shell,
   profilePath: string
 ): Promise<string> {
-  const directory = join(resolveStateDirectory(), `${encodeURIComponent(packageName)}-shellrc`)
+  const packageIdentity = createHash('sha256').update(packageName).digest('hex').slice(0, 24)
+  const directory = join(resolveStateDirectory(), packageIdentity)
   const profileIdentity = createHash('sha256').update(profilePath).digest('hex').slice(0, 16)
   const cleanupPath = join(directory, `cleanup-${shell}-${profileIdentity}.cjs`)
   const source = Buffer.from(cleanupScriptSource)

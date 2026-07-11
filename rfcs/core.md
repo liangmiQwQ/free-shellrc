@@ -40,7 +40,12 @@ Bash and Zsh share a shell language in many cases, but they remain separate iden
 The public API contains a guard and an installation function:
 
 ```ts
-export function shellrcGuard(entry: string | URL): void
+export interface ShellrcGuardDiagnostic {
+  code: 'PACKAGE_NOT_FOUND' | 'SHELL_RESTART_REQUIRED' | 'UNSUPPORTED_SHELL'
+  message: string
+}
+
+export function shellrcGuard(entry: string | URL): ShellrcGuardDiagnostic | undefined
 
 export function installShellrc(
   commands: (shellType: Shell) => string,
@@ -48,7 +53,7 @@ export function installShellrc(
 ): Promise<boolean>
 ```
 
-The downstream application must call `shellrcGuard(import.meta.url)` at the top of its complete entry, before other application logic. The guard locates the nearest named `package.json`, rejects terminals whose current shell is unsupported, and rejects application invocations while a first-install restart marker exists.
+The downstream application must call `shellrcGuard(import.meta.url)` at the top of its complete entry, before other application logic. The guard locates the nearest named `package.json` and returns an error when the current shell is unsupported or a first-install restart marker exists.
 
 `commands` produces the caller-provided command for a selected shell. The command remains shell-specific and is not translated between shell languages.
 
@@ -58,7 +63,7 @@ The package name discovered by `shellrcGuard` identifies the owning product and 
 
 The promise resolves to `true` when at least one profile changes and `false` when every profile already contains the requested block. Installing the same commands twice therefore returns `false` and does not write any file.
 
-Expected conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
+`shellrcGuard` returns a plain diagnostic when an expected guard condition should stop the application and `undefined` when it may continue. Diagnostics are control-flow data, not `Error` objects. Unexpected input, package manifest, and filesystem failures still throw. Installation failures reject the promise. Expected installation conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
 
 ## Profile resolution
 
@@ -93,7 +98,7 @@ Markers occupy complete lines and are matched exactly. They are derived from the
 
 An installed block contains the opening marker, a warning not to edit the managed region, a shell-specific package-installation guard, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
 
-The first time a product block is added, installation creates a package-specific file in the operating system's temporary directory. A supported shell removes that file when it loads the new block and confirms the product is available. Until then, `shellrcGuard` reports `ERR_SHELL_RESTART_REQUIRED`. This makes the required restart enforceable instead of relying only on caller messaging. Updating or repairing an existing block does not recreate the restart marker.
+The first time a product block is added, installation creates a package-specific file in the operating system's temporary directory. A supported shell removes that file when it loads the new block and confirms the product is available. Until then, `shellrcGuard` reports `SHELL_RESTART_REQUIRED`. This makes the required restart enforceable instead of relying only on caller messaging. Updating or repairing an existing block does not recreate the restart marker.
 
 When a shell loads the block, it first checks that both the JavaScript entry passed to `shellrcGuard` and the discovered package manifest still exist as files. If both exist, the block executes only the caller-provided command. If either is missing, the package is considered uninstalled: the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
 
@@ -168,7 +173,7 @@ Callers are responsible for:
 
 `free-shellrc` does not execute the installed command during installation. The user's shell executes it when loading the managed block and the product is still available.
 
-The application must place `shellrcGuard(import.meta.url)` before other entry logic so an unsupported shell or pending restart stops the complete application consistently.
+The application must place `shellrcGuard(import.meta.url)` before other entry logic and stop when it returns an error so an unsupported shell or pending restart stops the complete application consistently.
 
 ## Verification
 

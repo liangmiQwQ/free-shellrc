@@ -111,13 +111,11 @@ it.skipIf(platform() === 'win32')(
     prepareGuard(home, 'bash')
     await installShellrc(() => 'true', ['bash'])
 
-    expect(() => {
-      prepareGuard(home, 'bash')
-    }).toThrow(expect.objectContaining({ code: 'ERR_SHELL_RESTART_REQUIRED' }))
+    const diagnostic = prepareGuard(home, 'bash')
+    expect(diagnostic).toMatchObject({ code: 'SHELL_RESTART_REQUIRED' })
+    expect(diagnostic).not.toBeInstanceOf(Error)
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
-    expect(() => {
-      prepareGuard(home, 'bash')
-    }).not.toThrow()
+    expect(prepareGuard(home, 'bash')).toBeUndefined()
   }
 )
 
@@ -125,9 +123,7 @@ it.skipIf(platform() === 'win32')('rejects an unsupported current shell', async 
   const home = await createHome()
   process.env.SHELL = '/bin/nu'
 
-  expect(() => {
-    prepareGuard(home)
-  }).toThrow(expect.objectContaining({ code: 'ERR_UNSUPPORTED_SHELL' }))
+  expect(prepareGuard(home)).toMatchObject({ code: 'UNSUPPORTED_SHELL' })
 })
 
 it('accepts import.meta.url as the application entry', async () => {
@@ -142,12 +138,19 @@ it('accepts import.meta.url as the application entry', async () => {
 
   try {
     process.chdir(home)
-    expect(() => {
-      shellrcGuard(pathToFileURL(entryPath).href)
-    }).not.toThrow()
+    expect(shellrcGuard(pathToFileURL(entryPath).href)).toBeUndefined()
   } finally {
     process.chdir(originalWorkingDirectory)
   }
+})
+
+it('throws unexpected guard errors', async () => {
+  const home = await createTemporaryDirectory()
+  const entryPath = join(home, 'entry.mjs')
+  await writeFile(join(home, 'package.json'), '{')
+  await writeFile(entryPath, '')
+
+  expect(() => shellrcGuard(entryPath)).toThrow(SyntaxError)
 })
 
 it('installs only the current shell when no shell list is provided', async () => {
@@ -348,11 +351,14 @@ async function createHome(): Promise<string> {
   process.env.XDG_STATE_HOME = join(home, 'state')
   delete process.env.ZDOTDIR
   delete process.env.XDG_CONFIG_HOME
-  prepareGuard(home)
+  const diagnostic = prepareGuard(home)
+  if (diagnostic) {
+    throw new Error(diagnostic.message)
+  }
   return home
 }
 
-function prepareGuard(home: string, packageName = 'demo'): void {
+function prepareGuard(home: string, packageName = 'demo'): ReturnType<typeof shellrcGuard> {
   const packageDirectory = join(home, 'package')
   const entryPath = join(packageDirectory, 'entry.mjs')
   mkdirSync(packageDirectory, { recursive: true })
@@ -363,7 +369,7 @@ function prepareGuard(home: string, packageName = 'demo'): void {
   if (!temporaryRestartPaths.includes(restartPath)) {
     temporaryRestartPaths.push(restartPath)
   }
-  shellrcGuard(entryPath)
+  return shellrcGuard(entryPath)
 }
 
 async function createTemporaryDirectory(): Promise<string> {

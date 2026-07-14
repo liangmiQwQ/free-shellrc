@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
-import { basename, delimiter, dirname, join, parse, resolve } from 'node:path'
+import { basename, delimiter, dirname, extname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { createShellrcError } from './errors.ts'
@@ -92,7 +92,9 @@ function resolveLauncherPath(executable: string): string | undefined {
 
   const extensions =
     platform() === 'win32'
-      ? ['', ...(process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(delimiter)]
+      ? extname(executable)
+        ? ['']
+        : (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(delimiter).filter(Boolean)
       : ['']
   const pathDirectories = (process.env.PATH ?? '').split(delimiter)
   for (const directory of pathDirectories) {
@@ -114,7 +116,7 @@ function isLauncher(path: string): boolean {
     }
   } catch (error) {
     const { code } = error as NodeJS.ErrnoException
-    if (code === 'ENOENT' || code === 'ENOTDIR') {
+    if (code === 'EACCES' || code === 'ENOENT' || code === 'ENOTDIR') {
       return false
     }
     throw error

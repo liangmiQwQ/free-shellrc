@@ -171,6 +171,41 @@ it('reports when the executable is not found on PATH', async () => {
   expect(diagnostic).not.toBeInstanceOf(Error)
 })
 
+it.skipIf(platform() === 'win32')('skips unreadable directories on PATH', async () => {
+  const home = await createHome()
+  const unreadableRoot = await createTemporaryDirectory()
+  const unreadableBin = join(unreadableRoot, 'bin')
+  await mkdir(unreadableBin)
+  process.env.PATH = `${unreadableBin}${delimiter}${process.env.PATH}`
+  await chmod(unreadableBin, 0o000)
+
+  try {
+    expect(prepareGuard(home)).toBeUndefined()
+    await installShellrc(() => 'demo init', ['bash'])
+    const installed = await readFile(join(home, '.bashrc'), 'utf8')
+    expect(installed).toContain(launcherPath(home, 'demo'))
+  } finally {
+    await chmod(unreadableBin, 0o700)
+  }
+})
+
+it.skipIf(platform() !== 'win32')(
+  'uses PATHEXT instead of an extensionless Windows candidate',
+  async () => {
+    const home = await createHome()
+    const extensionless = join(home, 'bin', 'demo')
+    const launcher = launcherPath(home, 'demo')
+    await writeFile(extensionless, '')
+
+    expect(prepareGuard(home)).toBeUndefined()
+    await installShellrc(() => 'demo init', ['bash'])
+    const installed = await readFile(join(home, '.bashrc'), 'utf8')
+
+    expect(installed.toLowerCase()).toContain(`'${launcher.toLowerCase()}'`)
+    expect(installed.toLowerCase()).not.toContain(`'${extensionless.toLowerCase()}'`)
+  }
+)
+
 it.skipIf(platform() === 'win32')(
   'stores the launcher path without resolving its symlink',
   async () => {

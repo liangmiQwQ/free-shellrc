@@ -111,7 +111,9 @@ When a shell loads the block, it checks that the guarded entry and package manif
 
 After resolving the package metadata, `shellrcGuard` returns `SHELLRC_CHECK` when the matching variable is set and skips shell detection, restart-marker rejection, and other application logic. The exact variable name is derived from the package identity and is valid on every supported platform.
 
-The entry, manifest, and executable check form one condition. All three must succeed before the block removes the restart marker and executes the caller-provided command. If any check fails, the package is considered uninstalled: the block skips the command and removes its complete managed region from that profile. This additional executable check is required because package managers such as pnpm can retain entry and manifest files in a [global virtual store](https://pnpm.io/global-virtual-store) after removing the executable link.
+The entry, manifest, and executable check form one condition. All three must succeed before the block removes the restart marker and executes the caller-provided command. The executable check succeeds only with exit code zero; every nonzero exit code or launch failure is treated the same. The block must not give special meaning to exit code 127 because shell failure codes are not portable across all supported shells.
+
+If any check fails, the package is considered uninstalled: the block skips the command and removes its complete managed region from that profile. This additional executable check is required because package managers such as pnpm can retain entry and manifest files in a [global virtual store](https://pnpm.io/global-virtual-store) after removing the executable link.
 
 Check output is discarded, and check or cleanup failures must not prevent the rest of the profile from loading. The check runs once per profile load and is not cached across shell sessions.
 
@@ -198,7 +200,7 @@ Pure transformation tests cover:
 - Product-derived and malformed markers.
 - Preservation of all bytes outside the managed region.
 - Every supported encoding and byte-order mark.
-- Availability-check success, entry-missing, manifest-missing, command-not-found, and nonzero-exit branches of each shell-specific managed block.
+- Availability-check success, entry-missing, manifest-missing, launch-failure, and nonzero-exit branches of each shell-specific managed block.
 - Unsupported current shells and the create, reject, and shell-load removal lifecycle of the first-install restart marker.
 
 Filesystem tests use temporary directories and cover missing parents, unchanged writes, permissions, symbolic links, and concurrent-change detection. Tests must never target a developer's actual shell profile.

@@ -1,14 +1,15 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, lstatSync, readFileSync } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
-import { basename, dirname, join, parse, resolve } from 'node:path'
+import { basename, delimiter, dirname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { createShellrcError } from './errors.ts'
 import type { Shell } from './shells.ts'
 
 export type ShellrcGuardDiagnosticCode =
+  | 'EXECUTABLE_NOT_FOUND'
   | 'PACKAGE_NOT_FOUND'
   | 'SHELL_RESTART_REQUIRED'
   | 'UNSUPPORTED_SHELL'
@@ -20,6 +21,7 @@ export interface ShellrcGuardDiagnostic {
 
 export interface ShellrcContext {
   entryPath: string
+  launcherPath: string
   packageName: string
   packagePath: string
   restartPath: string
@@ -29,12 +31,22 @@ export interface ShellrcContext {
 let activeContext: ShellrcContext | undefined
 
 /** The returned diagnostic must be handled before other application logic runs. */
-export function shellrcGuard(entry: string | URL): ShellrcGuardDiagnostic | undefined {
+export function shellrcGuard(
+  entry: string | URL,
+  executable: string
+): ShellrcGuardDiagnostic | undefined {
   activeContext = undefined
   const entryPath = resolveEntryPath(entry)
   const packageMetadata = findPackageMetadata(entryPath)
   if ('code' in packageMetadata) {
     return packageMetadata
+  }
+  const launcherPath = resolveLauncherPath(executable)
+  if (!launcherPath) {
+    return {
+      code: 'EXECUTABLE_NOT_FOUND',
+      message: `Could not find the ${executable} executable on PATH.`
+    }
   }
   const shell = detectCurrentShell()
   if (!shell) {
@@ -54,6 +66,7 @@ export function shellrcGuard(entry: string | URL): ShellrcGuardDiagnostic | unde
   }
   activeContext = {
     entryPath,
+    launcherPath,
     packageName: packageMetadata.name,
     packagePath: packageMetadata.path,
     restartPath,
@@ -68,8 +81,59 @@ export function requireShellrcContext(): ShellrcContext {
   }
   throw createShellrcError(
     'ERR_SHELLRC_GUARD_REQUIRED',
-    'Call shellrcGuard(import.meta.url) at the top of the application entry before using free-shellrc.'
+    'Call shellrcGuard(import.meta.url, executable) at the top of the application entry before using free-shellrc.'
   )
+}
+
+function resolveLauncherPath(executable: string): string | undefined {
+  if (!executable || executable.includes('/') || executable.includes('\\')) {
+    throw new TypeError('The executable must be a name without a path.')
+  }
+
+  const extensions =
+    platform() === 'win32'
+      ? ['', ...(process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(delimiter)]
+      : ['']
+  const pathDirectories = (process.env.PATH ?? '').split(delimiter)
+  for (const directory of pathDirectories) {
+    for (const extension of extensions) {
+      const candidate = resolve(directory || '.', `${executable}${extension}`)
+      if (isLauncher(candidate)) {
+        return candidate
+      }
+    }
+  }
+  return undefined
+}
+
+function isLauncher(path: string): boolean {
+  let metadata
+  try {
+    // Keep a launcher symlink lexical instead of replacing it with its package-store target.
+    metadata = lstatSync(path)
+  } catch (error) {
+    const { code } = error as NodeJS.ErrnoException
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return false
+    }
+    throw error
+  }
+  if (!metadata.isFile() && !metadata.isSymbolicLink()) {
+    return false
+  }
+  if (platform() === 'win32') {
+    return true
+  }
+  try {
+    accessSync(path, constants.X_OK)
+    return true
+  } catch (error) {
+    const { code } = error as NodeJS.ErrnoException
+    if (code === 'EACCES' || code === 'ENOENT') {
+      return false
+    }
+    throw error
+  }
 }
 
 function createRestartPath(packageName: string): string {

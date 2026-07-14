@@ -42,6 +42,7 @@ export async function installShellrc(
       command,
       context.entryPath,
       context.packagePath,
+      context.launcherPath,
       profilePath,
       context.restartPath,
       cleanupPath,

@@ -15,7 +15,7 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { EOL, platform, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import { afterEach, expect, it } from 'vitest'
@@ -30,6 +30,7 @@ const originalEnvironment = {
   HOME: process.env.HOME,
   LOCALAPPDATA: process.env.LOCALAPPDATA,
   PATH: process.env.PATH,
+  PATHEXT: process.env.PATHEXT,
   SHELL: process.env.SHELL,
   XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
   XDG_STATE_HOME: process.env.XDG_STATE_HOME,
@@ -74,6 +75,7 @@ it.each(['bash', 'zsh', 'fish', 'powershell', 'pwsh'] as const)(
       'demo init',
       "/tmp/demo's/entry.mjs",
       "/tmp/demo's/package.json",
+      "/tmp/demo's/bin/demo",
       "/tmp/demo's/profile",
       '/tmp/demo.restart',
       "/tmp/demo's/cleanup.cjs",
@@ -126,6 +128,63 @@ it.skipIf(platform() === 'win32')('rejects an unsupported current shell', async 
   expect(prepareGuard(home)).toMatchObject({ code: 'UNSUPPORTED_SHELL' })
 })
 
+it('reports when the executable is not found on PATH', async () => {
+  const home = await createTemporaryDirectory()
+  const packageDirectory = join(home, 'package')
+  const entryPath = join(packageDirectory, 'entry.mjs')
+  await mkdir(packageDirectory)
+  await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({ name: 'demo' }))
+  await writeFile(entryPath, '')
+  process.env.PATH = ''
+  process.env.SHELL = '/bin/bash'
+
+  const diagnostic = shellrcGuard(entryPath, 'demo')
+
+  expect(diagnostic).toMatchObject({ code: 'EXECUTABLE_NOT_FOUND' })
+  expect(diagnostic).not.toBeInstanceOf(Error)
+})
+
+it.skipIf(platform() === 'win32')(
+  'stores the launcher path without resolving its symlink',
+  async () => {
+    const home = await createHome()
+    const launcher = launcherPath(home, 'demo')
+    const targetDirectory = await createTemporaryDirectory()
+    const target = join(targetDirectory, 'shared-demo')
+    await writeFile(target, '#!/bin/sh\n')
+    await chmod(target, 0o755)
+    await rm(launcher)
+    await symlink(target, launcher)
+
+    expect(prepareGuard(home)).toBeUndefined()
+    await installShellrc(() => 'demo init', ['bash'])
+    const installed = await readFile(join(home, '.bashrc'), 'utf8')
+
+    expect(installed).toContain(launcher)
+    expect(installed).not.toContain(target)
+  }
+)
+
+it.skipIf(platform() === 'win32')(
+  'updates the block when PATH resolves a changed launcher',
+  async () => {
+    const home = await createHome()
+    const profile = join(home, '.bashrc')
+    const originalLauncher = launcherPath(home, 'demo')
+    await installShellrc(() => 'demo init', ['bash'])
+    execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
+
+    const replacementRoot = await createTemporaryDirectory()
+    const replacementLauncher = await createLauncher(replacementRoot, 'demo')
+    expect(prepareGuard(home)).toBeUndefined()
+
+    await expect(installShellrc(() => 'demo init', ['bash'])).resolves.toBeTruthy()
+    const installed = await readFile(profile, 'utf8')
+    expect(installed).toContain(replacementLauncher)
+    expect(installed).not.toContain(originalLauncher)
+  }
+)
+
 it('accepts import.meta.url as the application entry', async () => {
   const home = await createTemporaryDirectory()
   const packageDirectory = join(home, 'package#encoded')
@@ -133,12 +192,13 @@ it('accepts import.meta.url as the application entry', async () => {
   await mkdir(packageDirectory)
   await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({ name: 'demo-url' }))
   await writeFile(entryPath, '')
+  await createLauncher(home, 'demo')
   process.env.SHELL = '/bin/bash'
   const originalWorkingDirectory = process.cwd()
 
   try {
     process.chdir(home)
-    expect(shellrcGuard(pathToFileURL(entryPath).href)).toBeUndefined()
+    expect(shellrcGuard(pathToFileURL(entryPath).href, 'demo')).toBeUndefined()
   } finally {
     process.chdir(originalWorkingDirectory)
   }
@@ -150,7 +210,7 @@ it('throws unexpected guard errors', async () => {
   await writeFile(join(home, 'package.json'), '{')
   await writeFile(entryPath, '')
 
-  expect(() => shellrcGuard(entryPath)).toThrow(SyntaxError)
+  expect(() => shellrcGuard(entryPath, 'demo')).toThrow(SyntaxError)
 })
 
 it('installs only the current shell when no shell list is provided', async () => {
@@ -272,7 +332,7 @@ it.skipIf(platform() === 'win32')('keeps a profile symlink and target permission
   await expect(readFile(target, 'utf8')).resolves.toContain('demo init')
 })
 
-it.skipIf(platform() === 'win32').each(['entry', 'package'] as const)(
+it.skipIf(platform() === 'win32').each(['entry', 'package', 'launcher'] as const)(
   'runs while installed and self-removes when the %s file disappears',
   async missingFile => {
     const home = await createHome()
@@ -290,11 +350,10 @@ it.skipIf(platform() === 'win32').each(['entry', 'package'] as const)(
     await expect(readFile(output, 'utf8')).resolves.toBe('loaded')
 
     await rm(output)
-    const missingPath = join(
-      home,
-      'package',
-      missingFile === 'entry' ? 'entry.mjs' : 'package.json'
-    )
+    const missingPath =
+      missingFile === 'launcher'
+        ? launcherPath(home, 'demo')
+        : join(home, 'package', missingFile === 'entry' ? 'entry.mjs' : 'package.json')
     await rm(missingPath)
     execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
 
@@ -325,7 +384,7 @@ it.skipIf(platform() === 'win32')('queries pwsh for its profile path', async () 
   const home = await createHome()
   const bin = join(home, 'bin')
   const profile = join(home, 'custom', 'profile.ps1')
-  await mkdir(bin)
+  await mkdir(bin, { recursive: true })
   const executable = join(bin, 'pwsh')
   await writeFile(executable, `#!/bin/sh${EOL}printf '%s\\n' "$FREE_SHELLRC_PROFILE"${EOL}`)
   await chmod(executable, 0o755)
@@ -351,6 +410,7 @@ async function createHome(): Promise<string> {
   process.env.XDG_STATE_HOME = join(home, 'state')
   delete process.env.ZDOTDIR
   delete process.env.XDG_CONFIG_HOME
+  await createLauncher(home, 'demo')
   const diagnostic = prepareGuard(home)
   if (diagnostic) {
     throw new Error(diagnostic.message)
@@ -369,7 +429,23 @@ function prepareGuard(home: string, packageName = 'demo'): ReturnType<typeof she
   if (!temporaryRestartPaths.includes(restartPath)) {
     temporaryRestartPaths.push(restartPath)
   }
-  return shellrcGuard(entryPath)
+  return shellrcGuard(entryPath, 'demo')
+}
+
+async function createLauncher(home: string, executable: string): Promise<string> {
+  const bin = join(home, 'bin')
+  const path = launcherPath(home, executable)
+  await mkdir(bin, { recursive: true })
+  await writeFile(path, platform() === 'win32' ? '@echo off\r\n' : '#!/bin/sh\n')
+  if (platform() !== 'win32') {
+    await chmod(path, 0o755)
+  }
+  process.env.PATH = `${bin}${delimiter}${process.env.PATH ?? ''}`
+  return path
+}
+
+function launcherPath(home: string, executable: string): string {
+  return join(home, 'bin', platform() === 'win32' ? `${executable}.cmd` : executable)
 }
 
 async function createTemporaryDirectory(): Promise<string> {

@@ -2,13 +2,16 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
-import { basename, dirname, join, parse, resolve } from 'node:path'
+import { basename, delimiter, dirname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { whichCommandAllSync, whichCommandSync } from 'which-command'
 
 import { createShellrcError } from './errors.ts'
 import type { Shell } from './shells.ts'
 
 export type ShellrcGuardDiagnosticCode =
+  | 'EXECUTABLE_NOT_FOUND'
   | 'PACKAGE_NOT_FOUND'
   | 'SHELL_RESTART_REQUIRED'
   | 'UNSUPPORTED_SHELL'
@@ -20,6 +23,7 @@ export interface ShellrcGuardDiagnostic {
 
 export interface ShellrcContext {
   entryPath: string
+  launcherPath: string
   packageName: string
   packagePath: string
   restartPath: string
@@ -29,12 +33,22 @@ export interface ShellrcContext {
 let activeContext: ShellrcContext | undefined
 
 /** The returned diagnostic must be handled before other application logic runs. */
-export function shellrcGuard(entry: string | URL): ShellrcGuardDiagnostic | undefined {
+export function shellrcGuard(
+  entry: string | URL,
+  executable: string
+): ShellrcGuardDiagnostic | undefined {
   activeContext = undefined
   const entryPath = resolveEntryPath(entry)
   const packageMetadata = findPackageMetadata(entryPath)
   if ('code' in packageMetadata) {
     return packageMetadata
+  }
+  const launcherPath = resolveLauncherPath(executable)
+  if (!launcherPath) {
+    return {
+      code: 'EXECUTABLE_NOT_FOUND',
+      message: `Could not find the ${executable} executable on PATH.`
+    }
   }
   const shell = detectCurrentShell()
   if (!shell) {
@@ -54,6 +68,7 @@ export function shellrcGuard(entry: string | URL): ShellrcGuardDiagnostic | unde
   }
   activeContext = {
     entryPath,
+    launcherPath,
     packageName: packageMetadata.name,
     packagePath: packageMetadata.path,
     restartPath,
@@ -68,7 +83,33 @@ export function requireShellrcContext(): ShellrcContext {
   }
   throw createShellrcError(
     'ERR_SHELLRC_GUARD_REQUIRED',
-    'Call shellrcGuard(import.meta.url) at the top of the application entry before using free-shellrc.'
+    'Call shellrcGuard(import.meta.url, executable) at the top of the application entry before using free-shellrc.'
+  )
+}
+
+function resolveLauncherPath(executable: string): string | undefined {
+  if (!executable || executable.includes('/') || executable.includes('\\')) {
+    throw new TypeError('The executable must be a name without a path.')
+  }
+
+  const searchPath = process.env.PATH ?? ''
+  if (platform() !== 'win32') {
+    return whichCommandSync(executable, { path: searchPath })
+  }
+
+  const pathDirectories = new Set(
+    searchPath
+      .split(delimiter)
+      .map(directory =>
+        directory.length > 1 && directory.startsWith('"') && directory.endsWith('"')
+          ? directory.slice(1, -1)
+          : directory
+      )
+      .filter(Boolean)
+      .map(directory => resolve(directory).toLowerCase())
+  )
+  return whichCommandAllSync(executable, { path: searchPath }).find(candidate =>
+    pathDirectories.has(dirname(candidate).toLowerCase())
   )
 }
 

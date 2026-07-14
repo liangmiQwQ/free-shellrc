@@ -22,6 +22,8 @@ Return expected guard conditions as plain diagnostics. Throw unexpected failures
 
 Treat shell profile files as user-owned data. Preserve content outside the managed region, and use temporary directories in tests instead of modifying real user profiles.
 
+Resolve the user-facing executable from `PATH` in `shellrcGuard` and retain its lexical launcher path. Generated blocks must check that exact filesystem entry without executing it or searching `PATH` again.
+
 Keep generated profile code readable. Do not encode executable cleanup payloads.
 
 Store cleanup helpers in opaque package-specific directories, keep them profile-specific, and remove them after successful cleanup.

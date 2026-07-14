@@ -7,6 +7,7 @@ export function createManagedBlock(
   command: string,
   entryPath: string,
   packagePath: string,
+  launcherPath: string,
   profilePath: string,
   restartPath: string,
   cleanupPath: string,
@@ -21,6 +22,7 @@ export function createManagedBlock(
           normalizedCommand,
           entryPath,
           packagePath,
+          launcherPath,
           profilePath,
           restartPath,
           cleanupPath,
@@ -31,6 +33,7 @@ export function createManagedBlock(
             normalizedCommand,
             entryPath,
             packagePath,
+            launcherPath,
             profilePath,
             restartPath,
             cleanupPath,
@@ -40,6 +43,7 @@ export function createManagedBlock(
             normalizedCommand,
             entryPath,
             packagePath,
+            launcherPath,
             profilePath,
             restartPath,
             cleanupPath,
@@ -53,17 +57,18 @@ function createPosixLines(
   command: string,
   entryPath: string,
   packagePath: string,
+  launcherPath: string,
   profilePath: string,
   restartPath: string,
   cleanupPath: string,
   markers: Markers
 ): string[] {
   return [
-    `if [ -f ${quotePosix(entryPath)} ] && [ -f ${quotePosix(packagePath)} ]; then`,
+    `if [ -f ${quotePosix(entryPath)} ] && [ -f ${quotePosix(packagePath)} ] && { [ -f ${quotePosix(launcherPath)} ] || [ -L ${quotePosix(launcherPath)} ]; }; then`,
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
     command,
     'else',
-    `  command node ${quotePosix(cleanupPath)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1 || true`,
+    `  command node ${quotePosix(cleanupPath)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1 && command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
     'fi'
   ]
 }
@@ -72,17 +77,18 @@ function createFishLines(
   command: string,
   entryPath: string,
   packagePath: string,
+  launcherPath: string,
   profilePath: string,
   restartPath: string,
   cleanupPath: string,
   markers: Markers
 ): string[] {
   return [
-    `if test -f ${quotePosix(entryPath)}; and test -f ${quotePosix(packagePath)}`,
+    `if test -f ${quotePosix(entryPath)}; and test -f ${quotePosix(packagePath)}; and begin; test -f ${quotePosix(launcherPath)}; or test -L ${quotePosix(launcherPath)}; end`,
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
     command,
     'else',
-    `  command node ${quotePosix(cleanupPath)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1; or true`,
+    `  command node ${quotePosix(cleanupPath)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1; and command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
     'end'
   ]
 }
@@ -91,18 +97,25 @@ function createPowerShellLines(
   command: string,
   entryPath: string,
   packagePath: string,
+  launcherPath: string,
   profilePath: string,
   restartPath: string,
   cleanupPath: string,
   markers: Markers
 ): string[] {
   return [
-    `if ((Test-Path -LiteralPath ${quotePowerShell(entryPath)} -PathType Leaf) -and (Test-Path -LiteralPath ${quotePowerShell(packagePath)} -PathType Leaf)) {`,
+    `if ((Test-Path -LiteralPath ${quotePowerShell(entryPath)} -PathType Leaf) -and (Test-Path -LiteralPath ${quotePowerShell(packagePath)} -PathType Leaf) -and (& {`,
+    `  $launcher = Get-Item -LiteralPath ${quotePowerShell(launcherPath)} -Force -ErrorAction SilentlyContinue`,
+    '  if ($null -eq $launcher) { return $false }',
+    `  $unixMode = $launcher.PSObject.Properties['UnixMode']`,
+    `  (($launcher -is [System.IO.FileInfo]) -and ((-not $unixMode) -or ($launcher.UnixMode -like '-*'))) -or ($launcher.LinkType -eq 'SymbolicLink')`,
+    '})) {',
     `  Remove-Item -LiteralPath ${quotePowerShell(restartPath)} -Force -ErrorAction SilentlyContinue`,
     command,
     '} else {',
     '  try {',
     `    & node ${quotePowerShell(cleanupPath)} ${quotePowerShell(profilePath)} ${quotePowerShell(markers.start)} ${quotePowerShell(markers.end)} *> $null`,
+    `    if ($LASTEXITCODE -eq 0) { Remove-Item -LiteralPath ${quotePowerShell(restartPath)} -Force -ErrorAction SilentlyContinue }`,
     '  } catch {}',
     '}'
   ]

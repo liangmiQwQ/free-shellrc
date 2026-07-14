@@ -6,7 +6,7 @@ Safely install product-owned shell integration in the current user's Bash, Zsh, 
 
 ## Why free-shellrc
 
-- **Self-cleaning after uninstall.** Each managed block checks whether its owning package still exists. If the package has been removed, the block skips the product command and removes itself from that profile. The cleanup helper then removes itself too.
+- **Self-cleaning after uninstall.** Each managed block checks whether its owning package files and executable launcher still exist. If the package has been removed, the block skips the product command and removes itself from that profile. The cleanup helper then removes itself too.
 - **Enforced first restart.** A first-time installation creates a restart marker. `shellrcGuard` returns `SHELL_RESTART_REQUIRED` on later application invocations until a new shell loads the managed block. Explicitly reloading the profile also satisfies this requirement.
 - **User-owned content stays user-owned.** Installation changes only the marked region and preserves content outside it byte for byte, along with the existing encoding, line endings, permissions, and symbolic link.
 - **Safe to repeat and update.** Reinstalling identical commands does not rewrite the profile. Changed commands replace the existing block in place, and malformed or concurrently changed profiles are not overwritten.
@@ -27,7 +27,7 @@ Pass a shell-specific command factory. By default, the library installs only for
 import { installShellrc, shellrcGuard } from 'free-shellrc'
 
 async function main() {
-  const diagnostic = shellrcGuard(import.meta.url)
+  const diagnostic = shellrcGuard(import.meta.url, 'acme')
   if (diagnostic) {
     console.error(diagnostic.message)
     process.exitCode = 1
@@ -54,7 +54,7 @@ await main()
 
 Pass a second argument such as `['bash', 'zsh', 'fish']` to install for an explicit set of shells. The command factory runs once for each selected shell. The promise resolves to `true` if at least one profile changed and `false` if every selected profile already contained the same managed block.
 
-Call `shellrcGuard(import.meta.url)` at the start of the complete application entry and return before other application code when it produces an error. The entry must belong to a package with a stable `name`. After the first installation, the guard continues returning an error until a restarted shell or explicitly reloaded profile loads the managed block once.
+Call `shellrcGuard(import.meta.url, executable)` at the start of the complete application entry and return before other application code when it produces an error. The entry must belong to a package with a stable `name`, and `executable` must be its user-facing executable name without arguments or shell syntax. The guard resolves the executable from `PATH` and retains that launcher path for uninstall checks. After the first installation, the guard continues returning an error until a restarted shell or explicitly reloaded profile loads the managed block once.
 
 ## Shell support
 
@@ -84,7 +84,7 @@ WSL is a separate Linux environment: install the integration from inside each WS
 - Return valid shell-specific code without generated marker lines. The library does not translate or validate commands.
 - Tell users to restart their shell or reload the profile after a changed installation. `free-shellrc` cannot modify the state of an already-running parent shell.
 
-If the guarded entry or package manifest disappears, the local cleanup helper removes the stale block while preserving the rest of the profile.
+If the guarded entry, package manifest, or stored launcher disappears, the local cleanup helper removes the stale block while preserving the rest of the profile. The launcher is checked as a filesystem entry without executing it or searching `PATH` again.
 
 ## Diagnostics and errors
 
@@ -92,6 +92,7 @@ If the guarded entry or package manifest disappears, the local cleanup helper re
 
 | Code                     | Meaning                                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
+| `EXECUTABLE_NOT_FOUND`   | The user-facing executable has no filesystem launcher on `PATH`.                         |
 | `PACKAGE_NOT_FOUND`      | The guarded entry has no ancestor `package.json` with a package name.                    |
 | `SHELL_RESTART_REQUIRED` | The first installation has not yet been loaded by a restarted shell or reloaded profile. |
 | `UNSUPPORTED_SHELL`      | The current terminal is using a shell that the library does not support.                 |

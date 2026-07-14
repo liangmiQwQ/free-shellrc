@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
-import { basename, delimiter, dirname, extname, join, parse, resolve } from 'node:path'
+import { basename, dirname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { whichCommandSync } from 'which-command'
 
 import { createShellrcError } from './errors.ts'
 import type { Shell } from './shells.ts'
@@ -90,50 +92,7 @@ function resolveLauncherPath(executable: string): string | undefined {
     throw new TypeError('The executable must be a name without a path.')
   }
 
-  const extensions =
-    platform() === 'win32'
-      ? extname(executable)
-        ? ['']
-        : (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(delimiter).filter(Boolean)
-      : ['']
-  const pathDirectories = (process.env.PATH ?? '').split(delimiter)
-  for (const directory of pathDirectories) {
-    for (const extension of extensions) {
-      const candidate = resolve(directory || '.', `${executable}${extension}`)
-      if (isLauncher(candidate)) {
-        return candidate
-      }
-    }
-  }
-  return undefined
-}
-
-function isLauncher(path: string): boolean {
-  try {
-    // Validate a symlink target without replacing the lexical candidate stored in the context.
-    if (!statSync(path).isFile()) {
-      return false
-    }
-  } catch (error) {
-    const { code } = error as NodeJS.ErrnoException
-    if (code === 'EACCES' || code === 'ENOENT' || code === 'ENOTDIR') {
-      return false
-    }
-    throw error
-  }
-  if (platform() === 'win32') {
-    return true
-  }
-  try {
-    accessSync(path, constants.X_OK)
-    return true
-  } catch (error) {
-    const { code } = error as NodeJS.ErrnoException
-    if (code === 'EACCES' || code === 'ENOENT' || code === 'ENOTDIR') {
-      return false
-    }
-    throw error
-  }
+  return whichCommandSync(executable, { path: process.env.PATH ?? '' })
 }
 
 function createRestartPath(packageName: string): string {

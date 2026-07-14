@@ -206,6 +206,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      which-command:
+        specifier: ^0.1.0
+        version: 0.1.0
     devDependencies:
       '@liangmi/vp-config':
         specifier: ^0.3.0
@@ -1413,6 +1417,11 @@ packages:
       jsdom:
         optional: true
 
+  which-command@0.1.0:
+    resolution: {integrity: sha512-XZyoF5/5hZtXitIwzrU4NKK+Wtbb9aB9CezUEw2Q0wlYK8NUYQxC1rRXgNueYLtBAJwXIb+/tFVk4dozciNJMA==}
+    engines: {node: '>=22'}
+    hasBin: true
+
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
@@ -2308,6 +2317,8 @@ snapshots:
       '@vitest/browser-preview': 4.1.10(vite@8.1.4(@types/node@26.1.1)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.10)
     transitivePeerDependencies:
       - msw
+
+  which-command@0.1.0: {}
 
   why-is-node-running@2.3.0:
     dependencies:

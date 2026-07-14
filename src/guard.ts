@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { accessSync, constants, existsSync, lstatSync, readFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -107,19 +107,17 @@ function resolveLauncherPath(executable: string): string | undefined {
 }
 
 function isLauncher(path: string): boolean {
-  let metadata
   try {
-    // Keep a launcher symlink lexical instead of replacing it with its package-store target.
-    metadata = lstatSync(path)
+    // Validate a symlink target without replacing the lexical candidate stored in the context.
+    if (!statSync(path).isFile()) {
+      return false
+    }
   } catch (error) {
     const { code } = error as NodeJS.ErrnoException
     if (code === 'ENOENT' || code === 'ENOTDIR') {
       return false
     }
     throw error
-  }
-  if (!metadata.isFile() && !metadata.isSymbolicLink()) {
-    return false
   }
   if (platform() === 'win32') {
     return true
@@ -129,7 +127,7 @@ function isLauncher(path: string): boolean {
     return true
   } catch (error) {
     const { code } = error as NodeJS.ErrnoException
-    if (code === 'EACCES' || code === 'ENOENT') {
+    if (code === 'EACCES' || code === 'ENOENT' || code === 'ENOTDIR') {
       return false
     }
     throw error

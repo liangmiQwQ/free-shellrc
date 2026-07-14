@@ -68,6 +68,7 @@ function createPosixLines(
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
     command,
     'else',
+    `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
     `  command node ${quotePosix(cleanupPath)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1 || true`,
     'fi'
   ]
@@ -88,6 +89,7 @@ function createFishLines(
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
     command,
     'else',
+    `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
     `  command node ${quotePosix(cleanupPath)} ${quotePosix(profilePath)} ${quotePosix(markers.start)} ${quotePosix(markers.end)} >/dev/null 2>&1; or true`,
     'end'
   ]
@@ -108,6 +110,7 @@ function createPowerShellLines(
     `  Remove-Item -LiteralPath ${quotePowerShell(restartPath)} -Force -ErrorAction SilentlyContinue`,
     command,
     '} else {',
+    `  Remove-Item -LiteralPath ${quotePowerShell(restartPath)} -Force -ErrorAction SilentlyContinue`,
     '  try {',
     `    & node ${quotePowerShell(cleanupPath)} ${quotePowerShell(profilePath)} ${quotePowerShell(markers.start)} ${quotePowerShell(markers.end)} *> $null`,
     '  } catch {}',

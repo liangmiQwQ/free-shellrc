@@ -121,6 +121,22 @@ it.skipIf(platform() === 'win32')(
   }
 )
 
+it.skipIf(platform() === 'win32')(
+  'clears the pending restart when the first profile load removes an uninstalled block',
+  async () => {
+    const home = await createHome()
+    const profile = join(home, '.bashrc')
+    await installShellrc(() => 'demo init', ['bash'])
+    await rm(launcherPath(home, 'demo'))
+
+    execFileSync('bash', ['--noprofile', '--norc', '-c', `source ${quotePosix(profile)}`])
+    await createLauncher(home, 'demo')
+
+    expect(prepareGuard(home)).toBeUndefined()
+    await expect(installShellrc(() => 'demo init', ['bash'])).resolves.toBeTruthy()
+  }
+)
+
 it.skipIf(platform() === 'win32')('rejects an unsupported current shell', async () => {
   const home = await createHome()
   process.env.SHELL = '/bin/nu'
@@ -162,6 +178,33 @@ it.skipIf(platform() === 'win32')(
 
     expect(installed).toContain(launcher)
     expect(installed).not.toContain(target)
+  }
+)
+
+it.skipIf(platform() === 'win32').each(['directory', 'non-directory path'] as const)(
+  'skips a launcher symlink targeting a %s',
+  async targetType => {
+    const home = await createHome()
+    const invalidRoot = await createTemporaryDirectory()
+    const invalidBin = join(invalidRoot, 'bin')
+    const invalidLauncher = join(invalidBin, 'demo')
+    await mkdir(invalidBin)
+
+    let target = await createTemporaryDirectory()
+    if (targetType === 'non-directory path') {
+      const file = join(invalidRoot, 'file')
+      await writeFile(file, '')
+      target = join(file, 'demo')
+    }
+    await symlink(target, invalidLauncher)
+    process.env.PATH = `${invalidBin}${delimiter}${process.env.PATH}`
+
+    expect(prepareGuard(home)).toBeUndefined()
+    await installShellrc(() => 'demo init', ['bash'])
+    const installed = await readFile(join(home, '.bashrc'), 'utf8')
+
+    expect(installed).toContain(launcherPath(home, 'demo'))
+    expect(installed).not.toContain(invalidLauncher)
   }
 )
 

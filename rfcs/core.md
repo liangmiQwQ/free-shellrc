@@ -41,11 +41,19 @@ The public API contains a guard and an installation function:
 
 ```ts
 export interface ShellrcGuardDiagnostic {
-  code: 'PACKAGE_NOT_FOUND' | 'SHELL_RESTART_REQUIRED' | 'UNSUPPORTED_SHELL'
+  code:
+    | 'PACKAGE_NOT_FOUND'
+    | 'SHELL_RESTART_REQUIRED'
+    | 'SHELLRC_HOOK'
+    | 'SHELLRC_HOOK_MISMATCH'
+    | 'UNSUPPORTED_SHELL'
   message: string
 }
 
-export function shellrcGuard(entry: string | URL): ShellrcGuardDiagnostic | undefined
+export function shellrcGuard(
+  entry: string | URL,
+  executable: string
+): ShellrcGuardDiagnostic | undefined
 
 export function installShellrc(
   commands: (shellType: Shell) => string,
@@ -53,17 +61,39 @@ export function installShellrc(
 ): Promise<boolean>
 ```
 
-The downstream application must call `shellrcGuard(import.meta.url)` at the top of its complete entry, before other application logic. The guard locates the nearest named `package.json` and returns an error when the current shell is unsupported or a first-install restart marker exists.
+The downstream application must call `shellrcGuard(import.meta.url, executable)` at the top of its complete entry, before other application logic. `executable` is the product's user-facing executable name as resolved from `PATH`, without arguments or shell syntax. It must not be a JavaScript entry path or a package-manager store path. The guard locates the nearest named `package.json` and returns a diagnostic when the current shell is unsupported, a first-install restart marker exists, or a shellrc hook invocation must stop normal application startup.
 
 `commands` produces the caller-provided command for a selected shell. The command remains shell-specific and is not translated between shell languages.
 
 When `shell` is omitted, installation targets the current shell detected by `shellrcGuard`. When it is provided, installation targets each listed shell in order. The library resolves the corresponding current-user profiles and invokes `commands` once for each selected shell.
 
-The package name discovered by `shellrcGuard` identifies the owning product and is used in the managed block's comment markers. The guarded JavaScript entry and discovered package manifest identify whether the package remains installed. Callers cannot supply a separate product identity.
+The package name discovered by `shellrcGuard` identifies the owning product and is used in the managed block's comment markers and availability hook. The executable proves that the product remains invocable. Callers cannot supply a separate product identity.
+
+On a normal invocation, `shellrcGuard` stores the executable in the active guard context consumed by `installShellrc`. The generated block contains the executable name and package-scoped hook argument, but no guarded JavaScript entry or package manifest path.
 
 The promise resolves to `true` when at least one profile changes and `false` when every profile already contains the requested block. Installing the same commands twice therefore returns `false` and does not write any file.
 
-`shellrcGuard` returns a plain diagnostic when an expected guard condition should stop the application and `undefined` when it may continue. Diagnostics are control-flow data, not `Error` objects. Unexpected input, package manifest, and filesystem failures still throw. Installation failures reject the promise. Expected installation conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
+`shellrcGuard` returns a plain diagnostic when an expected guard condition should stop the application and `undefined` when it may continue. Diagnostics are control-flow data, not `Error` objects. `SHELLRC_HOOK` is a successful early-return condition: the downstream application must return normally without printing an error or setting a nonzero exit code. Every other diagnostic stops the application with a nonzero exit code. Unexpected input, package manifest, and filesystem failures still throw. Installation failures reject the promise. Expected installation conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
+
+## Runtime availability hook
+
+A physical package file is not sufficient evidence that a product remains installed. In particular, pnpm's [global virtual store](https://pnpm.io/global-virtual-store) places package contents in a shared location outside the project and leaves project `node_modules` containing only links into that store. The shared package entry and manifest can therefore outlive the executable link whose removal made the product unavailable.
+
+The managed block instead invokes the user-facing executable with one library-reserved, package-scoped argument:
+
+```text
+<executable> --free-shellrc-hook=<packageName>
+```
+
+The library quotes the executable and argument for the target shell. They are not caller-provided shell source. Hook stdout and stderr are discarded.
+
+`shellrcGuard` resolves the guarded entry's package metadata before handling the reserved argument. When the argument's package name exactly matches the discovered package name, it returns `SHELLRC_HOOK` before shell detection, restart-marker rejection, or other application logic. When the reserved argument is present but the package name does not match, it returns `SHELLRC_HOOK_MISMATCH`. The downstream entry must stop for either result, using exit code zero only for `SHELLRC_HOOK`.
+
+The hook exit status is the availability contract. Exit code zero means the expected product is currently invocable, so the block removes the restart marker and executes the caller-provided command. A command-not-found failure or any nonzero exit means the product is unavailable, so the block skips the caller-provided command and invokes its cleanup helper. This also prevents a different executable with the same name from satisfying the check unless it reports the same package identity through `shellrcGuard`.
+
+Checking only whether the executable name resolves is rejected because another product can occupy the same name. Following the old entry or manifest path to its final target is also rejected because a shared package store can retain that target after uninstall. Executing the package-scoped hook verifies both command resolution and product identity.
+
+The hook starts the guarded executable once for every profile load. This cost is accepted because it tests the same command resolution that the installed integration depends on and returns before the rest of the application starts. The design does not cache a successful result across shell sessions because doing so would reintroduce stale installation state.
 
 ## Profile resolution
 
@@ -96,13 +126,13 @@ Every downstream package has a stable package name. The library uses comments to
 
 Markers occupy complete lines and are matched exactly. They are derived from the downstream package name; callers cannot override them.
 
-An installed block contains the opening marker, a warning not to edit the managed region, a shell-specific package-installation guard, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
+An installed block contains the opening marker, a warning not to edit the managed region, the shell-specific runtime availability hook, the caller-provided command for that shell, a shell-specific self-removal routine, and the closing marker. The caller's command remains opaque and is inserted exactly as provided apart from converting its line endings to match the target file.
 
 The first time a product block is added, installation creates a package-specific file in the operating system's temporary directory. A supported shell removes that file when it loads the new block and confirms the product is available. Until then, `shellrcGuard` reports `SHELL_RESTART_REQUIRED`. This makes the required restart enforceable instead of relying only on caller messaging. Updating or repairing an existing block does not recreate the restart marker.
 
-When a shell loads the block, it first checks that both the JavaScript entry passed to `shellrcGuard` and the discovered package manifest still exist as files. If both exist, the block executes only the caller-provided command. If either is missing, the package is considered uninstalled: the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
+When a shell loads the block, it first runs the runtime availability hook. If the hook exits successfully, the block executes the caller-provided command. If it cannot run or exits unsuccessfully, the package is considered unavailable: the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
 
-The availability guard and cleanup routine are library-generated implementation details for Bash, Zsh, Fish, Windows PowerShell, and PowerShell 7. They must not rewrite or reinterpret the caller-provided command. A cleanup failure must not prevent the rest of the user's profile from loading.
+The availability hook and cleanup routine are library-generated implementation details for Bash, Zsh, Fish, Windows PowerShell, and PowerShell 7. They must not rewrite or reinterpret the caller-provided command. Hook and cleanup failures must not prevent the rest of the user's profile from loading.
 
 The cleanup program is maintained as a standalone JavaScript source file and imported as raw text during the library build. Installation writes a copy outside the package to an opaque package-specific directory in the operating system's persistent per-user state directory. The directory name does not expose either the downstream package name or `free-shellrc`, and each shell profile receives its own helper identified by the shell and profile path. The managed block invokes that copy so cleanup continues after the package is removed without embedding the program in the profile.
 
@@ -185,7 +215,7 @@ Pure transformation tests cover:
 - Product-derived and malformed markers.
 - Preservation of all bytes outside the managed region.
 - Every supported encoding and byte-order mark.
-- Package-present, entry-missing, and manifest-missing branches of each shell-specific managed block.
+- Hook success, command-not-found, nonzero exit, and package-identity mismatch branches of each shell-specific managed block.
 - Unsupported current shells and the create, reject, and shell-load removal lifecycle of the first-install restart marker.
 
 Filesystem tests use temporary directories and cover missing parents, unchanged writes, permissions, symbolic links, and concurrent-change detection. Tests must never target a developer's actual shell profile.
@@ -196,4 +226,4 @@ CI runs on Windows, macOS, and Linux. Shell-specific integration tests query rea
 
 The library can ship before either consumer migrates.
 
-Existing applications adopt it by calling `shellrcGuard(import.meta.url)` at the top of their entry and passing a shell-aware command factory to `installShellrc`. Application-specific wrapper and action protocols stay in their existing repositories.
+Existing applications adopt it by calling `shellrcGuard(import.meta.url, executable)` at the top of their entry, returning normally for `SHELLRC_HOOK`, returning with a nonzero exit code for other diagnostics, and passing a shell-aware command factory to `installShellrc`. Application-specific wrapper and action protocols stay in their existing repositories.

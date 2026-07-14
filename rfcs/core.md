@@ -42,7 +42,6 @@ The public API contains a guard and an installation function:
 ```ts
 export interface ShellrcGuardDiagnostic {
   code:
-    | 'ENTRY_NOT_FOUND'
     | 'PACKAGE_NOT_FOUND'
     | 'SHELL_RESTART_REQUIRED'
     | 'SHELLRC_HOOK'
@@ -68,41 +67,11 @@ The downstream application must call `shellrcGuard(import.meta.url, executable)`
 
 When `shell` is omitted, installation targets the current shell detected by `shellrcGuard`. When it is provided, installation targets each listed shell in order. The library resolves the corresponding current-user profiles and invokes `commands` once for each selected shell.
 
-The package name discovered by `shellrcGuard` identifies the owning product and is used in the managed block's comment markers and opaque availability identity. The guarded JavaScript entry, discovered package manifest, and executable jointly prove that the product remains installed. Callers cannot supply a separate product identity.
-
-On a normal invocation, `shellrcGuard` stores the entry path, package manifest path, and executable in the active guard context consumed by `installShellrc`. The generated block contains all three checks and the opaque hook argument.
+The package name discovered by `shellrcGuard` identifies the owning product. The guard stores the entry path, package manifest path, and executable for `installShellrc`; callers cannot supply a separate product identity.
 
 The promise resolves to `true` when at least one profile changes and `false` when every profile already contains the requested block. Installing the same commands twice therefore returns `false` and does not write any file.
 
 `shellrcGuard` returns a plain diagnostic when an expected guard condition should stop the application and `undefined` when it may continue. Diagnostics are control-flow data, not `Error` objects. `SHELLRC_HOOK` is a successful early-return condition: the downstream application must return normally without printing an error or setting a nonzero exit code. Every other diagnostic stops the application with a nonzero exit code. Unexpected input, package manifest, and filesystem failures still throw. Installation failures reject the promise. Expected installation conflicts use stable error codes so callers can distinguish invalid markers, unsupported encodings, unavailable shells, and concurrent changes. The implementation should use normal `Error` objects with typed properties rather than an exported error class hierarchy.
-
-## Runtime availability hook
-
-A physical package file is necessary but not sufficient evidence that a product remains installed. In particular, pnpm's [global virtual store](https://pnpm.io/global-virtual-store) places package contents in a shared location outside the project and leaves project `node_modules` containing only links into that store. The shared package entry and manifest can therefore outlive the executable link whose removal made the product unavailable.
-
-The managed block invokes the user-facing executable with one opaque argument:
-
-```text
-<executable> --321bd4106958a222449078e55ce1518b=<identity>
-```
-
-`321bd4106958a222449078e55ce1518b` is a fixed, randomly generated 128-bit protocol namespace. It does not contain a library or product name. `<identity>` is the first 128 bits of the lowercase hexadecimal SHA-256 digest of the protocol namespace, a null byte, the package name, a null byte, and the executable name. It is stable across package upgrades, does not expose the package name, and gives the complete flag a negligible chance of colliding with a normal CLI option. The namespace and identity are collision-avoidance mechanisms, not secrets or authentication credentials.
-
-The library quotes the executable and argument for the target shell. They are not caller-provided shell source. Hook stdout and stderr are discarded.
-
-The managed block treats these three checks as one short-circuiting condition:
-
-1. The guarded JavaScript entry exists as a file.
-2. The discovered package manifest exists as a file.
-3. The executable accepts the opaque hook and exits successfully.
-
-`shellrcGuard` recognizes the fixed namespace and resolves the guarded entry's package metadata before completing the hook. It revalidates that the entry is a file, that the manifest is a file with the expected package name, and that `<identity>` matches the discovered package and executable. Only then does it return `SHELLRC_HOOK`, before shell detection, restart-marker rejection, or other application logic. A namespace match with a different identity returns `SHELLRC_HOOK_MISMATCH`. A missing entry or package returns `ENTRY_NOT_FOUND` or `PACKAGE_NOT_FOUND`. The downstream entry must stop for every result, using exit code zero only for `SHELLRC_HOOK`.
-
-All three checks must succeed before the block removes the restart marker and executes the caller-provided command. A missing file, command-not-found failure, hook mismatch, or any nonzero hook exit treats the product as uninstalled: the block skips the caller-provided command and invokes its cleanup helper. Revalidating the two files inside the hook closes the gap between the shell's file checks and hook completion.
-
-Checking only the entry and manifest is rejected because a shared package store can retain both after uninstall. Checking only whether the executable name resolves is rejected because another product can occupy the same name. Requiring the files, executable, and package-specific opaque identity makes each check independently necessary.
-
-The hook starts the guarded executable once for every profile load. This cost is accepted because it tests the same command resolution that the installed integration depends on and returns before the rest of the application starts. The design does not cache a successful result across shell sessions because doing so would reintroduce stale installation state.
 
 ## Profile resolution
 
@@ -139,9 +108,13 @@ An installed block contains the opening marker, a warning not to edit the manage
 
 The first time a product block is added, installation creates a package-specific file in the operating system's temporary directory. A supported shell removes that file when it loads the new block and confirms the product is available. Until then, `shellrcGuard` reports `SHELL_RESTART_REQUIRED`. This makes the required restart enforceable instead of relying only on caller messaging. Updating or repairing an existing block does not recreate the restart marker.
 
-When a shell loads the block, it checks the guarded entry, package manifest, and runtime availability hook as one condition. If all three succeed, the block executes the caller-provided command. If any check fails, the package is considered uninstalled: the block does not execute the command and instead removes its own complete managed region from that profile. This cleanup must target the resolved profile containing the block, match the exact marker lines, preserve all content outside the region, and leave the profile file in place even when it becomes empty.
+When a shell loads the block, it checks that the guarded entry and package manifest are files and invokes the user-facing executable with an opaque, package-specific hook. The hook must be collision-resistant and must not expose a recognizable library or product name. `shellrcGuard` handles a matching hook before shell detection, restart-marker rejection, or other application logic and returns `SHELLRC_HOOK`; a hook for another package returns `SHELLRC_HOOK_MISMATCH`.
 
-The availability hook and cleanup routine are library-generated implementation details for Bash, Zsh, Fish, Windows PowerShell, and PowerShell 7. They must not rewrite or reinterpret the caller-provided command. Hook and cleanup failures must not prevent the rest of the user's profile from loading.
+The entry, manifest, and executable hook form one condition. All three must succeed before the block removes the restart marker and executes the caller-provided command. If any check fails, the package is considered uninstalled: the block skips the command and removes its complete managed region from that profile. This additional executable check is required because package managers such as pnpm can retain entry and manifest files in a [global virtual store](https://pnpm.io/global-virtual-store) after removing the executable link.
+
+Hook output is discarded, and hook or cleanup failures must not prevent the rest of the profile from loading. The hook runs once per profile load and is not cached across shell sessions.
+
+The availability hook and cleanup routine are library-generated implementation details for Bash, Zsh, Fish, Windows PowerShell, and PowerShell 7. They must not rewrite or reinterpret the caller-provided command.
 
 The cleanup program is maintained as a standalone JavaScript source file and imported as raw text during the library build. Installation writes a copy outside the package to an opaque package-specific directory in the operating system's persistent per-user state directory. The directory name does not expose either the downstream package name or `free-shellrc`, and each shell profile receives its own helper identified by the shell and profile path. The managed block invokes that copy so cleanup continues after the package is removed without embedding the program in the profile.
 

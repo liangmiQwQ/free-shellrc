@@ -64,7 +64,7 @@ function createPosixLines(
   markers: Markers
 ): string[] {
   return [
-    `if [ -f ${quotePosix(entryPath)} ] && [ -f ${quotePosix(packagePath)} ] && { [ -e ${quotePosix(launcherPath)} ] || [ -L ${quotePosix(launcherPath)} ]; }; then`,
+    `if [ -f ${quotePosix(entryPath)} ] && [ -f ${quotePosix(packagePath)} ] && { [ -f ${quotePosix(launcherPath)} ] || [ -L ${quotePosix(launcherPath)} ]; }; then`,
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1 || true`,
     command,
     'else',
@@ -85,7 +85,7 @@ function createFishLines(
   markers: Markers
 ): string[] {
   return [
-    `if test -f ${quotePosix(entryPath)}; and test -f ${quotePosix(packagePath)}; and begin; test -e ${quotePosix(launcherPath)}; or test -L ${quotePosix(launcherPath)}; end`,
+    `if test -f ${quotePosix(entryPath)}; and test -f ${quotePosix(packagePath)}; and begin; test -f ${quotePosix(launcherPath)}; or test -L ${quotePosix(launcherPath)}; end`,
     `  command rm -f -- ${quotePosix(restartPath)} >/dev/null 2>&1; or true`,
     command,
     'else',
@@ -106,7 +106,12 @@ function createPowerShellLines(
   markers: Markers
 ): string[] {
   return [
-    `if ((Test-Path -LiteralPath ${quotePowerShell(entryPath)} -PathType Leaf) -and (Test-Path -LiteralPath ${quotePowerShell(packagePath)} -PathType Leaf) -and ($null -ne (Get-Item -LiteralPath ${quotePowerShell(launcherPath)} -Force -ErrorAction SilentlyContinue))) {`,
+    `if ((Test-Path -LiteralPath ${quotePowerShell(entryPath)} -PathType Leaf) -and (Test-Path -LiteralPath ${quotePowerShell(packagePath)} -PathType Leaf) -and (& {`,
+    `  $launcher = Get-Item -LiteralPath ${quotePowerShell(launcherPath)} -Force -ErrorAction SilentlyContinue`,
+    '  if ($null -eq $launcher) { return $false }',
+    `  $unixMode = $launcher.PSObject.Properties['UnixMode']`,
+    `  (($launcher -is [System.IO.FileInfo]) -and ((-not $unixMode) -or ($launcher.UnixMode -like '-*'))) -or ($launcher.LinkType -eq 'SymbolicLink')`,
+    '})) {',
     `  Remove-Item -LiteralPath ${quotePowerShell(restartPath)} -Force -ErrorAction SilentlyContinue`,
     command,
     '} else {',

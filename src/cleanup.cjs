@@ -13,6 +13,8 @@ if (cleanup()) {
   } catch {
     /* Self-removal failure must not affect profile cleanup. */
   }
+} else {
+  process.exitCode = 1
 }
 
 function cleanup() {

@@ -2,10 +2,10 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
-import { basename, dirname, join, parse, resolve } from 'node:path'
+import { basename, delimiter, dirname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { whichCommandSync } from 'which-command'
+import { whichCommandAllSync, whichCommandSync } from 'which-command'
 
 import { createShellrcError } from './errors.ts'
 import type { Shell } from './shells.ts'
@@ -92,7 +92,25 @@ function resolveLauncherPath(executable: string): string | undefined {
     throw new TypeError('The executable must be a name without a path.')
   }
 
-  return whichCommandSync(executable, { path: process.env.PATH ?? '' })
+  const searchPath = process.env.PATH ?? ''
+  if (platform() !== 'win32') {
+    return whichCommandSync(executable, { path: searchPath })
+  }
+
+  const pathDirectories = new Set(
+    searchPath
+      .split(delimiter)
+      .map(directory =>
+        directory.length > 1 && directory.startsWith('"') && directory.endsWith('"')
+          ? directory.slice(1, -1)
+          : directory
+      )
+      .filter(Boolean)
+      .map(directory => resolve(directory).toLowerCase())
+  )
+  return whichCommandAllSync(executable, { path: searchPath }).find(candidate =>
+    pathDirectories.has(dirname(candidate).toLowerCase())
+  )
 }
 
 function createRestartPath(packageName: string): string {

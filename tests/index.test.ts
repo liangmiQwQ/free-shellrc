@@ -84,7 +84,7 @@ it.each(['bash', 'zsh', 'fish', 'powershell', 'pwsh'] as const)(
     )
 
     expect(block).not.toContain('function cleanup()')
-    expect(Buffer.byteLength(block)).toBeLessThan(1024)
+    expect(Buffer.byteLength(block)).toBeLessThan(1100)
 
     const powerShell = shell === 'powershell' || shell === 'pwsh'
     const quotedProfile = powerShell ? "'/tmp/demo''s/profile'" : `'/tmp/demo'"'"'s/profile'`
@@ -92,15 +92,19 @@ it.each(['bash', 'zsh', 'fish', 'powershell', 'pwsh'] as const)(
       ? "'/tmp/demo''s/cleanup.cjs'"
       : `'/tmp/demo'"'"'s/cleanup.cjs'`
     const quotedLauncher = powerShell ? "'/tmp/demo''s/bin/demo'" : `'/tmp/demo'"'"'s/bin/demo'`
+    const quotedRestart = "'/tmp/demo.restart'"
     const cleanupCommand = powerShell ? '    & node' : '  command node'
-    const failureGuard = powerShell
-      ? ' *> $null'
-      : shell === 'fish'
-        ? ' >/dev/null 2>&1; or true'
-        : ' >/dev/null 2>&1 || true'
+    const failureGuard = powerShell ? ' *> $null' : ' >/dev/null 2>&1'
 
     expect(block).toContain(
       `${cleanupCommand} ${quotedCleanup} ${quotedProfile} '${markers.start}' '${markers.end}'${failureGuard}`
+    )
+    expect(block.slice(block.indexOf(`${cleanupCommand} ${quotedCleanup}`))).toContain(
+      powerShell
+        ? `if ($LASTEXITCODE -eq 0) { Remove-Item -LiteralPath ${quotedRestart}`
+        : shell === 'fish'
+          ? `; and command rm -f -- ${quotedRestart} >/dev/null 2>&1; or true`
+          : ` && command rm -f -- ${quotedRestart} >/dev/null 2>&1 || true`
     )
     expect(block).toContain(
       powerShell
@@ -145,6 +149,27 @@ it.skipIf(platform() === 'win32')(
 
     expect(prepareGuard(home)).toBeUndefined()
     await expect(installShellrc(() => 'demo init', ['bash'])).resolves.toBeTruthy()
+  }
+)
+
+it.skipIf(platform() === 'win32')(
+  'keeps the pending restart when an uninstalled block cannot clean itself up',
+  async () => {
+    const home = await createHome()
+    const profile = join(home, '.bashrc')
+    await installShellrc(() => 'demo init', ['bash'])
+    await rm(launcherPath(home, 'demo'))
+
+    execFileSync('bash', [
+      '--noprofile',
+      '--norc',
+      '-c',
+      `PATH=/bin; source ${quotePosix(profile)}`
+    ])
+    await createLauncher(home, 'demo')
+
+    expect(prepareGuard(home)).toMatchObject({ code: 'SHELL_RESTART_REQUIRED' })
+    await expect(readFile(profile, 'utf8')).resolves.toContain('# >>> _demo_START >>>')
   }
 )
 
@@ -205,6 +230,26 @@ it.skipIf(platform() !== 'win32')(
     expect(installed.toLowerCase()).not.toContain(`'${extensionless.toLowerCase()}'`)
   }
 )
+
+it.skipIf(platform() !== 'win32')('ignores Windows launchers outside PATH', async () => {
+  const home = await createHome()
+  const workingDirectory = await createTemporaryDirectory()
+  const workingDirectoryLauncher = join(workingDirectory, 'demo.cmd')
+  await writeFile(workingDirectoryLauncher, '@echo off\r\n')
+  const originalWorkingDirectory = process.cwd()
+
+  try {
+    process.chdir(workingDirectory)
+    expect(prepareGuard(home)).toBeUndefined()
+    await installShellrc(() => 'demo init', ['bash'])
+  } finally {
+    process.chdir(originalWorkingDirectory)
+  }
+
+  const installed = await readFile(join(home, '.bashrc'), 'utf8')
+  expect(installed.toLowerCase()).toContain(`'${launcherPath(home, 'demo').toLowerCase()}'`)
+  expect(installed.toLowerCase()).not.toContain(`'${workingDirectoryLauncher.toLowerCase()}'`)
+})
 
 it.skipIf(platform() === 'win32')(
   'stores the launcher path without resolving its symlink',

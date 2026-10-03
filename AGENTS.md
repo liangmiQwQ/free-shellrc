@@ -14,7 +14,7 @@ Use Vite+ as the project manager. Use `vp install` to install dependencies and `
 
 Run `vp check` and `vp test` after making changes.
 
-Keep AGENTS.md synchronized with durable project behavior and constraints. Do not store project status or temporary implementation details in it.
+If you find AGENTS.md is outdated, please notice users to change in response.
 
 Keep code functional. Never use classes. Prefer small reusable functions with one responsibility.
 

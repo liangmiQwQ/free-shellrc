@@ -1,3 +1,4 @@
+/* oxlint-disable node/no-sync -- The existing public API and shell startup helpers are synchronous. */
 // This script only removes its managed profile block after the owning package is uninstalled.
 // Template literals keep the generated helper readable.
 const crypto = require(`node:crypto`)

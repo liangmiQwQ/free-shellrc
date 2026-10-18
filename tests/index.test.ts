@@ -1,3 +1,4 @@
+/* oxlint-disable node/no-sync -- Tests and fixtures complete filesystem operations before asserting results. */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -18,7 +19,7 @@ import { EOL, platform, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it } from 'vite-plus/test'
 
 import { installShellrc, shellrcGuard } from '../src/index.ts'
 import { createManagedBlock } from '../src/shells.ts'

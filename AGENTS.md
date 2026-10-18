@@ -6,7 +6,7 @@ View the [RFCS](/rfcs) directory for accepted and proposed architecture decision
 
 ## Development
 
-This project uses Vite+ and `@liangmi/vp-config` with the `lib` preset. Vite+ handles library bundling, linting, formatting, and testing.
+This project uses Vite+ and `@liangmi/vp-config` with the trait-based `liangmi` preset. Vite+ handles library bundling, linting, formatting, and testing.
 
 ## Rules
 

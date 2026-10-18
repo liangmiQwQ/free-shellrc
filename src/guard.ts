@@ -1,3 +1,4 @@
+/* oxlint-disable node/no-sync -- The existing public API and shell startup helpers are synchronous. */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'

@@ -35,13 +35,12 @@
     "which-command": "^0.1.0"
   },
   "devDependencies": {
-    "@liangmi/vp-config": "^0.3.0",
+    "@liangmi/vp-config": "1.0.0",
     "@types/node": "^26.1.1",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "bumpp": "^11.1.0",
     "typescript": "^7.0.2",
-    "vite-plus": "^0.2.4",
-    "vitest": "^4.1.10"
+    "vite-plus": "1.3.0"
   },
   "devEngines": {
     "packageManager": {
